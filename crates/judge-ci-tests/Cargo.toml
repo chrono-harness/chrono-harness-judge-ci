@@ -1,0 +1,14 @@
+[package]
+name = "chrono-judge-ci-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autotests = false
+
+[dependencies]
+chrono-judge-ci = { path = "../judge-ci" }
+chrono-harness = { git = "https://github.com/chrono-harness/chrono-harness-runner.git", rev = "a1cff08f74d996d618372f20adc203d1b5904d50" }
+
+[[test]]
+name = "verified_collection"
+path = "tests/verified_collection.rs"

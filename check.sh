@@ -6,6 +6,8 @@ trap 'rm -rf -- "$scratch"' EXIT
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/judge-ci/Cargo.toml
 cargo build --locked --manifest-path crates/judge-ci/Cargo.toml
+cargo fmt --check --manifest-path crates/judge-ci-tests/Cargo.toml
+cargo test --locked --manifest-path crates/judge-ci-tests/Cargo.toml
 proof_bindings=()
 prove() {
   local label=$1 root=$2
@@ -41,3 +43,4 @@ jq -er '[.packages[] | select(.name == "chrono-harness") | .manifest_path | sub(
 export CHRONO_VERUS_SOURCE_REGISTRATION="$scratch/source_registration.rs"
 jq -er '[.packages[] | select(.name == "chrono-judge-registration") | .manifest_path | sub("Cargo.toml$"; "src/lib.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] mod source_registration;"' "$scratch/packages.json" > "$CHRONO_VERUS_SOURCE_REGISTRATION"
 prove verify.ci-collection crates/judge-ci/src/verified_collection.rs
+prove verify.ci-collection-tests crates/judge-ci-tests/tests/verified_collection.rs
