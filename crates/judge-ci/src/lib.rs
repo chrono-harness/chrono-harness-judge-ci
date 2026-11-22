@@ -77,6 +77,8 @@ use std::path::Path;
 #[cfg(not(verus_keep_ghost))]
 mod collect;
 #[cfg(not(verus_keep_ghost))]
+pub mod requirements;
+#[cfg(not(verus_keep_ghost))]
 pub use collect::{UnitOriginals, unit_originals};
 mod source_binding;
 #[cfg(not(verus_keep_ghost))]
@@ -1013,19 +1015,40 @@ pub fn full_collection_requirements_with_inputs(
         .context
         .as_ref()
         .ok_or("full collection context missing")?;
-    let (mut req, _, reader, cfg) = chrono_harness::full::prepare_request(
+    full_collection_at(
         root,
         profile,
         prepared.base.as_deref().ok_or("full base missing")?,
         &prepared.candidate,
         Path::new(&context.path),
-        Value::Null,
         prepared.scope.clone(),
+        originals,
+    )
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn full_collection_at(
+    root: &Path,
+    profile: &str,
+    base: &str,
+    candidate: &str,
+    context: &Path,
+    scope: Option<chrono_harness::units::Scope>,
+    originals: &dyn Fn(&[String]) -> Result<chrono_harness::units::FullManifest, String>,
+) -> Result<Value, String> {
+    let (mut req, _, reader, cfg) = chrono_harness::full::prepare_request(
+        root,
+        profile,
+        base,
+        candidate,
+        context,
+        Value::Null,
+        scope,
         None,
     )?;
     req.judge_id = "routes".into();
     let result = (|| {
-        // prepare_request observes its current process, which here is chrono-ci.
+        // prepare_request observes the calling executable.
         // Bootstrap instead carries the independently validated registered runner;
         // no retained report can assign an executable identity to this request.
         let runner = chrono_harness::no_symlink_parents(
