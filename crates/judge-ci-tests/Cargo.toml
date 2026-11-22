@@ -12,3 +12,7 @@ chrono-harness = { git = "https://github.com/chrono-harness/chrono-harness-runne
 [[test]]
 name = "verified_collection"
 path = "tests/verified_collection.rs"
+
+[[test]]
+name = "requirements"
+path = "tests/requirements.rs"
