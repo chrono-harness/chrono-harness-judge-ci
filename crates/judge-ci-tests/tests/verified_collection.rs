@@ -280,16 +280,6 @@ fn inventory_and_unrequired_states_preserve_their_distinct_exit_contracts() {
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
-fn cloning_the_actual_report_result_preserves_every_field() {
-    let original = result("build", Status::Blocked, Some(-7));
-    let cloned = original.clone();
-    assert(cloned.id@ == "build"@);
-    assert(cloned.status == Status::Blocked);
-    assert(cloned.exit_code == Some(-7i32));
-    assert(cloned.cause@ == "original report"@);
-}
-
-#[cfg_attr(not(verus_keep_ghost), test)]
 fn borrowed_registered_ids_preserve_order_duplicates_unicode_nul_and_empty() {
     let values = vec!["é".to_string(), "a\0b".to_string(), "é".to_string()];
     let texts = policy::borrow_texts(&values);
@@ -576,3 +566,25 @@ fn reference_declarations_validate_actual_prefixes_and_explicit_bases() {
 }
 
 } // verus!
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn ci_rows_preserve_the_runner_protocol_in_both_directions() {
+    for (wire, expected) in [
+        ("passed", Status::Passed),
+        ("failed", Status::Failed),
+        ("not-required", Status::NotRequired),
+        ("blocked", Status::Blocked),
+    ] {
+        let raw = serde_json::json!({
+            "id":"build", "status":wire, "cause":"原始错误\0é", "exit_code":-7
+        });
+        let incoming: chrono_harness::CheckResult = serde_json::from_value(raw.clone()).unwrap();
+        let row = CheckResult::from(incoming);
+        assert!(row.status == expected);
+        assert_eq!(row.cause, "原始错误\0é");
+        assert_eq!(row.exit_code, Some(-7));
+        let outgoing = chrono_harness::CheckResult::from(row);
+        assert_eq!(serde_json::to_value(outgoing).unwrap(), raw);
+    }
+}

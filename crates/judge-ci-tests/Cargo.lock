@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "autocfg"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -85,7 +91,7 @@ version = "0.1.0"
 dependencies = [
  "chrono-diagnostics",
  "chrono-harness",
- "chrono-judge-registration",
+ "chrono-judge-registration 0.1.0 (git+https://github.com/chrono-harness/chrono-harness-judge-registration.git?rev=b6bb64c77f832f8c3f5382ee6cc4fa0985022826)",
  "serde",
  "serde_json",
  "tracing",
@@ -110,7 +116,7 @@ source = "git+https://github.com/chrono-harness/chrono-harness-judge-filemap.git
 dependencies = [
  "chrono-harness",
  "chrono-judge-mixed",
- "chrono-judge-registration",
+ "chrono-judge-registration 0.1.0 (git+https://github.com/chrono-harness/chrono-harness-judge-registration.git?rev=76530cce04ad04ebda2f71a16a8a51f930c2daa8)",
  "serde",
  "serde_json",
 ]
@@ -121,7 +127,7 @@ version = "0.1.0"
 source = "git+https://github.com/chrono-harness/chrono-harness-judge-mixed.git?rev=3d8cdc0d062b123a31aecddd5fb0fedee0a914ea#3d8cdc0d062b123a31aecddd5fb0fedee0a914ea"
 dependencies = [
  "chrono-harness",
- "chrono-judge-registration",
+ "chrono-judge-registration 0.1.0 (git+https://github.com/chrono-harness/chrono-harness-judge-registration.git?rev=76530cce04ad04ebda2f71a16a8a51f930c2daa8)",
  "serde_json",
 ]
 
@@ -137,13 +143,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-judge-registration"
+version = "0.1.0"
+source = "git+https://github.com/chrono-harness/chrono-harness-judge-registration.git?rev=b6bb64c77f832f8c3f5382ee6cc4fa0985022826#b6bb64c77f832f8c3f5382ee6cc4fa0985022826"
+dependencies = [
+ "chrono-harness",
+ "serde",
+ "serde_json",
+ "time",
+ "vstd",
+]
+
+[[package]]
 name = "chrono-judge-routes"
 version = "0.1.0"
 source = "git+https://github.com/chrono-harness/chrono-harness-judge-routes.git?rev=de64456d6571db07ead2dcc2476e7adee551a955#de64456d6571db07ead2dcc2476e7adee551a955"
 dependencies = [
  "chrono-harness",
  "chrono-judge-filemap",
- "chrono-judge-registration",
+ "chrono-judge-registration 0.1.0 (git+https://github.com/chrono-harness/chrono-harness-judge-registration.git?rev=76530cce04ad04ebda2f71a16a8a51f930c2daa8)",
  "serde",
  "serde_json",
 ]
@@ -227,6 +245,22 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
+
+[[package]]
+name = "indexmap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
+dependencies = [
+ "autocfg",
+ "hashbrown",
 ]
 
 [[package]]
@@ -582,6 +616,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "verus_builtin"
+version = "0.0.0-2026-04-12-0118"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a46cb431066009ad2035f6bca936b1c2b7e293bffec93a2090fead0f35ab4276"
+
+[[package]]
 name = "verus_builtin_macros"
 version = "0.0.0-2026-04-20-1748"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -606,6 +646,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "verus_state_machines_macros"
+version = "0.0.0-2026-04-20-1748"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba2497778c0b23d5cbd93f43cce512438af5cb01b1f1435aa7e411da8495efb5"
+dependencies = [
+ "indexmap",
+ "proc-macro2",
+ "quote",
+ "verus_syn",
+]
+
+[[package]]
 name = "verus_syn"
 version = "0.0.0-2026-04-05-0114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -614,6 +666,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "vstd"
+version = "0.0.0-2026-04-20-1748"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d03a77a2ee1b91bc776f8e9ee716d83b519d4338912116d7e855edfa3a8b976"
+dependencies = [
+ "verus_builtin",
+ "verus_builtin_macros",
+ "verus_state_machines_macros",
 ]
 
 [[package]]

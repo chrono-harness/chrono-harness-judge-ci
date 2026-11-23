@@ -34,8 +34,6 @@ proof_bindings=(--extern "chrono_identifiers=$scratch/libchrono_identifiers.rlib
 
 # Resolve proof sources from the same revisions as the runtime libraries.
 cargo metadata --locked --format-version 1 --manifest-path crates/judge-ci/Cargo.toml > "$scratch/packages.json"
-export CHRONO_VERUS_RESULT_TYPES="$scratch/result_types.rs"
-jq -er '[.packages[] | select(.name == "chrono-harness") | .manifest_path | sub("Cargo.toml$"; "src/verified_status.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] pub mod result_types;"' "$scratch/packages.json" > "$CHRONO_VERUS_RESULT_TYPES"
 export CHRONO_VERUS_SOURCE_VERIFIER="$scratch/source_verifier.rs"
 jq -er '[.packages[] | select(.name == "chrono-harness") | .manifest_path | sub("Cargo.toml$"; "src/verified_verifier.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] pub mod source_verifier;"' "$scratch/packages.json" > "$CHRONO_VERUS_SOURCE_VERIFIER"
 export CHRONO_VERUS_SOURCE_REGISTRATION="$scratch/source_registration.rs"

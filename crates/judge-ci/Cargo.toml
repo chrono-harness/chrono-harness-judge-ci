@@ -18,7 +18,7 @@ bench = false
 tracing-tunnel = { version = "0.1.0", default-features = false, features = ["receiver", "std"] }
 chrono-diagnostics = { git = "https://github.com/chrono-harness/chrono-harness-diagnostics.git", rev = "8da697ff878dbe2e31ddcfe7366714de49e79d03" }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-chrono-judge-registration = { git = "https://github.com/chrono-harness/chrono-harness-judge-registration.git", rev = "76530cce04ad04ebda2f71a16a8a51f930c2daa8" }
+chrono-judge-registration = { git = "https://github.com/chrono-harness/chrono-harness-judge-registration.git", rev = "b6bb64c77f832f8c3f5382ee6cc4fa0985022826" }
 chrono-harness = { git = "https://github.com/chrono-harness/chrono-harness-runner.git", rev = "a1cff08f74d996d618372f20adc203d1b5904d50" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

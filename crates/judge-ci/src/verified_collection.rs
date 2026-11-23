@@ -16,10 +16,8 @@ pub use chrono_judge_registration::inputs::{
     select_snapshot_schema, snapshot_uses_selector,
 };
 
-#[cfg(verus_keep_ghost)]
-include!(env!("CHRONO_VERUS_RESULT_TYPES"));
-#[cfg(not(verus_keep_ghost))]
-pub use chrono_harness::verified_status as result_types;
+#[path = "result_types.rs"]
+pub mod result_types;
 use result_types::{CheckResult, Status};
 
 #[cfg(verus_keep_ghost)]
@@ -164,7 +162,7 @@ pub fn response_status(rows: &Vec<CheckResult>) -> (status: Status)
         decreases rows.len() - i,
     {
         let row = &rows[i];
-        if row.status.eq(&Status::Failed) || row.status.eq(&Status::Blocked) {
+        if matches!(row.status, Status::Failed | Status::Blocked) {
             assert(report_failure(rows@));
             return Status::Failed;
         }
@@ -228,7 +226,7 @@ pub fn has_result(
         decreases values.len() - i,
     {
         let value = &values[i];
-        if equal_text(value.id.as_str(), id) && value.status.eq(status)
+        if equal_text(value.id.as_str(), id) && value.status as u8 == *status as u8
             && value.exit_code == exit_code {
             return true;
         }
@@ -260,7 +258,7 @@ pub fn matches_result_states(values: &Vec<CheckResult>, not_required: &Vec<&str>
     {
         let value = &values[i];
         if contains_text(not_required, value.id.as_str())
-            && !value.status.eq(&Status::NotRequired) { return false; }
+            && !matches!(value.status, Status::NotRequired) { return false; }
         i += 1;
     }
     true
