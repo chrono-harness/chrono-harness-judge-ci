@@ -46,15 +46,7 @@ pub use chrono_judge_registration::{
     parse_retained, select_retained, validate_object_fields, validate_reference_syntax,
 };
 #[cfg(verus_keep_ghost)]
-pub use source_registration::inputs::{
-    retained_decoding, retained_error_head, retained_error_suffix, retained_field_failure,
-    retained_fields_ok, retained_mode, retained_selection,
-};
-#[cfg(verus_keep_ghost)]
-pub use source_registration::{
-    ObjectFieldError, Retained, RetainedError, RetainedObservation, object_error_parts,
-    parse_retained, select_retained, validate_object_fields, validate_reference_syntax,
-};
+pub use source_registration::validate_reference_syntax;
 
 verus! {
 
