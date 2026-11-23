@@ -350,7 +350,7 @@ fn snapshot(
     oid: &str,
     mut p: Policy,
     endpoint: EndpointTools,
-    bindings: &impl Fn(&Value) -> Result<TestBindings, String>,
+    bindings: &impl Fn(&Value, &Value, &Value) -> Result<TestBindings, String>,
     adoption: bool,
 ) -> Result<Snapshot, String> {
     let fm = json(&at(reader, root, oid, &p.filemap)?)?;
@@ -370,7 +370,17 @@ fn snapshot(
     {
         return Err("unsupported registry version".into());
     }
-    let registered_tests = bindings(&pr)?;
+    let artifacts = if let Some(values) = &registration {
+        values.values[&values.effective_path]["artifacts"].clone()
+    } else {
+        object!(
+            p.artifacts
+                .iter()
+                .map(|path| object!({"path":path}))
+                .collect::<Vec<_>>()
+        )
+    };
+    let registered_tests = bindings(&fm, &pr, &artifacts)?;
     if adoption {
         let mut old_operations = BTreeSet::new();
         for collection in ["projects", "scripts"] {
@@ -395,7 +405,9 @@ fn snapshot(
         if !p.bindings.is_empty() {
             return Err("current FILEMAP v2 cannot duplicate plans in scoped bindings".into());
         }
-        let plans = chrono_judge_registration::execution::plans(&fm)?;
+        let plans: BTreeMap<String, chrono_judge_registration::execution::Plan> =
+            serde_json::from_value(fm["execution_plans"].clone())
+                .map_err(|error| error.to_string())?;
         p.bindings = plans
             .iter()
             .map(|(id, p)| (id.clone(), p.operations.clone()))
@@ -640,21 +652,8 @@ fn snapshot(
     for e in array(&fm, "project_edges")? {
         add(text(e, "from")?, e)?
     }
-    let artifacts = if let Some(values) = &registration {
-        values.values[&values.effective_path]["artifacts"].clone()
-    } else {
-        object!(
-            p.artifacts
-                .iter()
-                .map(|path| object!({"path":path}))
-                .collect::<Vec<_>>()
-        )
-    };
-    let scheduling = chrono_judge_registration::execution::scheduling(&fm, &pr, &artifacts)?;
-    if let Some(declaration) = fm.get("reference_syntax") {
-        let syntax = serde_json::from_value(declaration.clone()).map_err(|e| e.to_string())?;
-        chrono_judge_registration::validate_reference_syntax(&syntax)?;
-    }
+    let scheduling = serde_json::from_value(fm["execution_scheduling"].clone())
+        .map_err(|error| error.to_string())?;
     let snapshot = Snapshot {
         registry: pr,
         filemap: fm.clone(),
@@ -1418,7 +1417,26 @@ fn inventory_profile(
         route_query::installed(root, &candidate_tools.tools, "chrono-judge-registration")?;
     let program = program.to_str().ok_or("non-UTF8 registration executable")?;
     let query = Query::scoped(root, &p)?;
-    let bindings = |registry: &Value| query.read(program, "scoped-test-bindings-v1", registry);
+    let bindings = |filemap: &Value, projects: &Value, artifacts: &Value| {
+        let declarations: serde_json::Map<_, _> = [
+            "schema_version",
+            "execution_plans",
+            "execution_scheduling",
+            "reference_syntax",
+        ]
+        .into_iter()
+        .filter_map(|key| {
+            filemap
+                .get(key)
+                .map(|value| (key.to_owned(), value.clone()))
+        })
+        .collect();
+        query.read(
+            program,
+            "scoped-execution-v1",
+            &object!({"filemap":declarations,"projects":projects,"artifacts":artifacts}),
+        )
+    };
     let previous;
     let old = if req.initial {
         if req.base.is_some() {
