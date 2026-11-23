@@ -2,7 +2,7 @@ use chrono_harness::CommandSpec;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(crate) fn check(
+pub fn check(
     registry: &Value,
     owners: &BTreeSet<String>,
     installed: Option<&Value>,

@@ -8,6 +8,18 @@ use chrono_harness::{
 use chrono_judge_registration::execution::Method;
 use std::io::Read;
 
+/// Decode the response recorded by a unit and bind it to the request and process exit.
+pub fn unit_response(value: &Value, request_id: &str, exit: i32) -> Result<Response, String> {
+    let response = Response::deserialize(value).map_err(|error| error.to_string())?;
+    chrono_harness::validate_response_protocol(
+        &response,
+        request_id,
+        exit,
+        chrono_harness::units::PROTOCOL,
+    )?;
+    Ok(response)
+}
+
 fn read(
     root: &Path,
     path: &str,
@@ -311,18 +323,11 @@ pub(super) fn collect(
         process(&producer)?;
         let decoded = json(&producer.stdout_bytes)?;
         let response_value = if retained_streams {
-            decoded.clone()
+            &decoded
         } else {
-            report["response"].clone()
+            &report["response"]
         };
-        let response: Response =
-            serde_json::from_value(response_value.clone()).map_err(|e| e.to_string())?;
-        chrono_harness::validate_response_protocol(
-            &response,
-            &original.request_id,
-            producer.exit_code,
-            chrono_harness::units::PROTOCOL,
-        )?;
+        let response = unit_response(response_value, &original.request_id, producer.exit_code)?;
         if original.protocol != chrono_harness::units::PROTOCOL
             || original.scope
                 != Some(Scope::Unit {
@@ -337,7 +342,7 @@ pub(super) fn collect(
             || producer.sha256 != input.judge_sha256
             || producer.stdin_sha256
                 != sha256(&serde_json::to_vec(&original).map_err(|e| e.to_string())?)
-            || decoded != response_value
+            || &decoded != response_value
             || producer.cwd != original.host_root
             || producer.failure.is_some()
         {

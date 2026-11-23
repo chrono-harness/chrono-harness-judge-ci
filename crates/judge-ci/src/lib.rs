@@ -5,11 +5,11 @@ use chrono_harness::{
     CheckConfig, PROTOCOL, Request, Response, decode, json, relative_path, sha256,
 };
 #[cfg(not(verus_keep_ghost))]
-mod impact_query;
+pub mod impact_query;
 #[cfg(not(verus_keep_ghost))]
 mod project_execution;
 #[cfg(not(verus_keep_ghost))]
-mod project_pairs;
+pub mod project_pairs;
 #[cfg(not(verus_keep_ghost))]
 mod route_query;
 #[cfg(not(verus_keep_ghost))]
@@ -33,7 +33,7 @@ mod collect;
 #[cfg(not(verus_keep_ghost))]
 pub mod requirements;
 #[cfg(not(verus_keep_ghost))]
-pub use collect::{UnitOriginals, unit_originals};
+pub use collect::{UnitOriginals, unit_originals, unit_response};
 mod source_binding;
 #[cfg(not(verus_keep_ghost))]
 mod units;
