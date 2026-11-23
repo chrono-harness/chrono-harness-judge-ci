@@ -2,7 +2,7 @@
 use crate::Snapshot;
 use chrono_harness::observation::Tool;
 use chrono_judge_registration::execution::{Method, Plan};
-use chrono_judge_routes::{Execution, Operation};
+use chrono_judge_routes::{Execution, Operation, Receipt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -88,7 +88,7 @@ impl Graph<'_> {
         let request = json!({"graph":self,"binding":binding,"declarations":declarations,
             "environment":environment,"reused":reused,"scheduling":snapshot.scheduling});
         let plan: Execution = read(root, &program, "prepare-scoped-plan-v1", &request)?;
-        plan.validate()?;
+        check_plan(root, &program, &plan)?;
         if plan.binding != binding
             || plan.root != root.canonicalize().map_err(|e| e.to_string())?
             || !plan.selected.keys().eq(self.selected.iter())
@@ -104,11 +104,62 @@ impl Graph<'_> {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlanIdentity {
+    plan: String,
+}
+
+pub(super) fn check_plan(root: &Path, program: &Path, plan: &Execution) -> Result<(), String> {
+    let reply: PlanIdentity = read(root, program, "check-plan-v1", plan)?;
+    if reply.plan != plan.identity {
+        return Err("E_PLAN_IDENTITY: routes returned a different plan".into());
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiptChecks {
+    plan: String,
+    operations: BTreeMap<String, Option<String>>,
+}
+
+/// One replay for all receipts. The caller still reports the first error in plan order.
+pub(super) fn check_receipts(
+    root: &Path,
+    program: &Path,
+    plan: &Execution,
+    receipts: BTreeMap<&str, &Receipt>,
+) -> Result<BTreeMap<String, Option<String>>, String> {
+    #[derive(Serialize)]
+    struct Replay<'a> {
+        plan: &'a Execution,
+        receipts: BTreeMap<&'a str, &'a Receipt>,
+    }
+    let reply: ReceiptChecks = read(
+        root,
+        program,
+        "check-plan-receipts-v1",
+        &Replay { plan, receipts },
+    )?;
+    if reply.plan != plan.identity
+        || reply.operations.len() != plan.operations.len()
+        || !plan
+            .operations
+            .iter()
+            .all(|op| reply.operations.contains_key(&op.method.operation))
+    {
+        return Err("E_PLAN_BINDING: routes returned different receipt operations".into());
+    }
+    Ok(reply.operations)
+}
+
 fn read<T: serde::de::DeserializeOwned>(
     root: &Path,
     program: &Path,
     operation: &str,
-    request: &Value,
+    request: &(impl Serialize + Sync),
 ) -> Result<T, String> {
     let digest = chrono_harness::file_identity(program)?.0;
     // Each tool observation has its own registered bounds. Join the complete

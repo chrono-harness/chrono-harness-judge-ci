@@ -174,6 +174,18 @@ pub fn unit_originals(
     })
 }
 
+fn expanded_receipt(row: &Value) -> Result<Receipt, String> {
+    if row.get("process").is_some() {
+        return Err("unit execution has duplicate process evidence".into());
+    }
+    let mut original = row["receipt"].clone();
+    if original["process"].get("encoding").is_none() {
+        return Err("unit execution process encoding required".into());
+    }
+    original["process"] = chrono_harness::full::expand_process(&original["process"])?;
+    serde_json::from_value(original).map_err(|e| e.to_string())
+}
+
 pub(super) fn collect(
     req: &Request,
     reader: &Reader,
@@ -382,7 +394,9 @@ pub(super) fn collect(
         }
         let plan: Execution =
             serde_json::from_value(e["plan"].clone()).map_err(|e| e.to_string())?;
-        plan.validate()?;
+        let routes =
+            super::route_query::installed(&req.host_root, &snapshot.tools, "chrono-judge-routes")?;
+        super::route_query::check_plan(&req.host_root, &routes, &plan)?;
         if plan.root != original.host_root
             || plan.binding
                 != object!({"base":req.base,"candidate":req.candidate,"config":req.config_sha256,"run":original.request_id,"entry":original.observations["entry"],"operation_state":super::operation_state_path(&original, config)?})
@@ -420,7 +434,7 @@ pub(super) fn collect(
             methods,
             execute: &snapshot.execute,
         }
-        .scoped_order(&req.host_root, snapshot, Some(&plan.binding))?;
+        .ordered(&req.host_root, &routes, Some(&plan.binding))?;
         if plan.scheduling != snapshot.scheduling
             || object!(chosen) != object!(plan.selected)
             || object!(operations) != object!(plan.operations)
@@ -480,17 +494,24 @@ pub(super) fn collect(
         if e["execution_evidence_schema"] != "chrono-ci-executions/v2" {
             return Err("unsupported or missing unit execution evidence schema".into());
         }
-        for (operation, row) in operations.iter().zip(executed) {
-            let mut original = row["receipt"].clone();
-            if row.get("process").is_some() {
-                return Err("unit execution has duplicate process evidence".into());
+        let receipts: Vec<_> = executed.iter().map(expanded_receipt).collect();
+        let supplied = operations
+            .iter()
+            .zip(&receipts)
+            .filter_map(|(op, result)| {
+                result
+                    .as_ref()
+                    .ok()
+                    .map(|receipt| (op.method.operation.as_str(), receipt))
+            })
+            .collect();
+        let mut checks =
+            super::route_query::check_receipts(&req.host_root, &routes, &plan, supplied)?;
+        for ((operation, row), receipt) in operations.iter().zip(executed).zip(receipts) {
+            let receipt = receipt?;
+            if let Some(error) = checks.remove(&operation.method.operation).flatten() {
+                return Err(error);
             }
-            if original["process"].get("encoding").is_none() {
-                return Err("unit execution process encoding required".into());
-            }
-            original["process"] = chrono_harness::full::expand_process(&original["process"])?;
-            let receipt: Receipt = serde_json::from_value(original).map_err(|e| e.to_string())?;
-            chrono_judge_routes::compare(&plan, operation, Some(&receipt))?;
             source_binding::bind_output(
                 "passed",
                 operation.method.operation.as_str(),

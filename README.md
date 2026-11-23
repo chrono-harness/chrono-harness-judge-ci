@@ -27,3 +27,5 @@ scoped 调度使用本仓 mise 配置中的独立 FILEMAP 发行。宿主可在�
 scoped CI 执行已选操作时使用宿主安装的 `chrono-judge-projects execute-plan-v1` 和 `chrono-judge-routes`。可在宿主的 tools 登记这两个程序的路径，未登记时按 PATH 查找。CI 从 projects 接收每个操作的回执和原始流，在本仓核对计划和操作集合，并把实时诊断写入宿主选择的日志。业务失败和诊断写入失败分别进入检查结果。
 
 scoped 计划从已安装的 routes 查询。调度和回放使用 `scoped-operations-v1` 展开已选操作，准备执行时使用 `prepare-scoped-plan-v1` 观察登记的工具并生成计划。CI 核对返回的宿主根、绑定、所选测试与调度参数，再交给 projects 执行。本仓 mise 配置固定了支持这两个命令的 routes 发行和各平台摘要。
+
+收集单元原件时，CI 展开已留存的进程输出，将整份计划和回执交给同一个已安装的 routes。它校验返回的计划身份和操作集合，按计划顺序处理每个回执的比较结果，并继续检查本仓负责的证明输出和单元结果。
