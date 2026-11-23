@@ -63,6 +63,8 @@ use chrono_harness::{
     sha256,
 };
 #[cfg(not(verus_keep_ghost))]
+mod project_pairs;
+#[cfg(not(verus_keep_ghost))]
 use chrono_judge_filemap::graph::{self, Edge, EdgeKind, Seed};
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
@@ -1515,7 +1517,18 @@ fn inventory_profile(
     selected.extend(consumption.required_tests.iter().cloned());
     selection_explanation["causal_consumption"] = object!(consumption);
     if new.registry["schema_version"] == 2 {
-        chrono_judge_projects::pair_declarations(&new.registry, &affected)?;
+        project_pairs::check(
+            &new.registry,
+            &affected,
+            new.tools.get("chrono-judge-projects"),
+            std::env::var("PATH").map_err(|error| error.to_string())?,
+            p.operation_timeout_seconds,
+            p.operation_output_limit_bytes,
+            |command, input| {
+                let result = chrono_harness::run_process(root, command, input)?;
+                Ok((result.exit_code, result.stdout_bytes, result.stderr_bytes))
+            },
+        )?;
     }
     let mut blocked = vec![];
     let mut removed = BTreeMap::new();

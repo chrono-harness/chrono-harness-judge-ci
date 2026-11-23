@@ -19,3 +19,5 @@
 | unit-originals | profile_sha256、unit、report、transport | 通过原件核验后的 unit、report_sha256 |
 
 其中 `report` 包含原发布路径 `path` 和 `sha256`。`transport` 的 `source_directory` 标识上传目录，`directory` 标识本次下载目录。原件读取沿用宿主的报告限制、摘要和准备记录校验。常规判官仍直接从 stdin 接收判定请求。
+
+scoped CI 遇到 schema 2 的项目登记时，通过 `chrono-judge-projects check-pairs-v1` 核对变更涉及的项目或脚本。宿主在工具登记中声明 `chrono-judge-projects` 时按其 `program` 启动，否则从 PATH 解析。调用使用当前配置登记的时间和输出上限。宿主从本仓 mise 配置所列的固定发行安装项目判官。
