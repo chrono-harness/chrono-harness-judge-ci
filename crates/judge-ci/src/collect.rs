@@ -411,11 +411,16 @@ pub(super) fn collect(
                 return Err("unit environment contains unregistered inherited input".into());
             }
         }
-        let (chosen, mut operations) =
-            chrono_judge_routes::order(&owned, &snapshot.plans, methods, &snapshot.execute)?;
-        for op in &mut operations {
-            op.method.argv = chrono_judge_routes::expand(&op.method.argv, &plan.binding);
+        let super::route_query::Ordered {
+            selected: chosen,
+            operations,
+        } = super::route_query::Graph {
+            selected: &owned,
+            plans: &snapshot.plans,
+            methods,
+            execute: &snapshot.execute,
         }
+        .scoped_order(&req.host_root, snapshot, Some(&plan.binding))?;
         if plan.scheduling != snapshot.scheduling
             || object!(chosen) != object!(plan.selected)
             || object!(operations) != object!(plan.operations)
