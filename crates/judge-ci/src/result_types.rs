@@ -1,7 +1,4 @@
 //! Rows produced by the CI judge and read back from unit reports.
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
-#[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
 verus! {
