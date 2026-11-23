@@ -38,6 +38,8 @@ use std::path::Path;
 #[cfg(not(verus_keep_ghost))]
 mod collect;
 #[cfg(not(verus_keep_ghost))]
+mod full_registration;
+#[cfg(not(verus_keep_ghost))]
 pub mod requirements;
 #[cfg(not(verus_keep_ghost))]
 pub use collect::{UnitOriginals, unit_originals, unit_response};
@@ -156,9 +158,10 @@ struct Snapshot {
     edges: BTreeSet<Edge>,
     tree: BTreeMap<String, (String, String)>,
     policy: Policy,
-    plans: BTreeMap<String, chrono_judge_registration::execution::Plan>,
+    plans: BTreeMap<String, route_wire::Plan>,
     execute: BTreeMap<String, String>,
-    scheduling: Option<chrono_judge_registration::execution::Scheduling>,
+    scheduling: Option<route_wire::Scheduling>,
+    startup: Option<consumption::StartupDeclarations>,
 }
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::facts::{Reader, utf8};
@@ -406,11 +409,20 @@ fn snapshot(
     .into_iter()
     .filter_map(|key| fm.get(key).map(|value| (key.to_owned(), value.clone())))
     .collect();
-    let registered_tests: TestBindings = query.read(
-        program,
-        "scoped-execution-v1",
-        &object!({"filemap":declarations,"projects":pr,"artifacts":artifacts}),
-    )?;
+    let request = object!({"filemap":declarations,"projects":pr,"artifacts":artifacts});
+    let (registered_tests, startup): (TestBindings, _) =
+        if !adoption && p.causal_consumption.is_some() {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct StartupReply {
+                bindings: TestBindings,
+                startup: consumption::StartupDeclarations,
+            }
+            let reply: StartupReply = query.read(program, "scoped-startup-v1", &request)?;
+            (reply.bindings, Some(reply.startup))
+        } else {
+            (query.read(program, "scoped-execution-v1", &request)?, None)
+        };
     if adoption {
         let mut old_operations = BTreeSet::new();
         for collection in ["projects", "scripts"] {
@@ -435,7 +447,7 @@ fn snapshot(
         if !p.bindings.is_empty() {
             return Err("current FILEMAP v2 cannot duplicate plans in scoped bindings".into());
         }
-        let plans: BTreeMap<String, chrono_judge_registration::execution::Plan> =
+        let plans: BTreeMap<String, route_wire::Plan> =
             serde_json::from_value(fm["execution_plans"].clone())
                 .map_err(|error| error.to_string())?;
         p.bindings = plans
@@ -449,7 +461,7 @@ fn snapshot(
             .map(|(id, ops)| {
                 (
                     id.clone(),
-                    chrono_judge_registration::execution::Plan {
+                    route_wire::Plan {
                         operations: ops.clone(),
                         timeout_seconds: p.operation_timeout_seconds,
                         output_limit_bytes: p.operation_output_limit_bytes,
@@ -700,6 +712,7 @@ fn snapshot(
         plans,
         execute,
         scheduling,
+        startup,
     };
     units::assignments(&snapshot)?;
     Ok(snapshot)
@@ -741,6 +754,8 @@ fn changed<T: PartialEq>(a: &BTreeMap<String, T>, b: &BTreeMap<String, T>) -> BT
 // Scoped CI owns legacy seeds and selections; it consumes only shared union/closure mechanics.
 #[cfg(not(verus_keep_ghost))]
 fn ci_impact(
+    query: &Query<'_>,
+    registration: &str,
     root: &Path,
     old: Option<&Snapshot>,
     new: &Snapshot,
@@ -821,44 +836,24 @@ fn ci_impact(
             }
         }
         if old.scheduling != new.scheduling {
-            for s in [old, new] {
-                for (test, plan) in &s.plans {
-                    let global = old
-                        .scheduling
-                        .as_ref()
-                        .map(|p| (p.max_running, &p.resources, &p.priority))
-                        != new
-                            .scheduling
-                            .as_ref()
-                            .map(|p| (p.max_running, &p.resources, &p.priority));
-                    if global
-                        || plan.operations.iter().any(|op| {
-                            old.scheduling.as_ref().and_then(|p| p.claims.get(op))
-                                != new.scheduling.as_ref().and_then(|p| p.claims.get(op))
-                                || [old.scheduling.as_ref(), new.scheduling.as_ref()]
-                                    .into_iter()
-                                    .flatten()
-                                    .any(|policy| {
-                                        policy.claims.keys().any(|changed| {
-                                            old.scheduling
-                                                .as_ref()
-                                                .and_then(|p| p.claims.get(changed))
-                                                != new
-                                                    .scheduling
-                                                    .as_ref()
-                                                    .and_then(|p| p.claims.get(changed))
-                                                && policy.claims.contains_key(op)
-                                                && policy.conflicts(op, changed)
-                                        })
-                                    })
-                        })
-                    {
-                        extras
-                            .entry(test.clone())
-                            .or_default()
-                            .insert("changed execution scheduling declaration".into());
-                    }
+            let endpoints = [old, new].map(|snapshot| {
+                let operations: BTreeMap<_, _> = snapshot
+                    .plans
+                    .iter()
+                    .map(|(test, plan)| (test, &plan.operations))
+                    .collect();
+                object!({"scheduling":snapshot.scheduling, "operations":operations})
+            });
+            let tests: BTreeSet<String> =
+                query.read(registration, "scheduling-tests-v1", &object!(endpoints))?;
+            for test in tests {
+                if !old.plans.contains_key(&test) && !new.plans.contains_key(&test) {
+                    return Err("E_PLAN_BINDING: scheduling returned an unregistered test".into());
                 }
+                extras
+                    .entry(test)
+                    .or_default()
+                    .insert("changed execution scheduling declaration".into());
             }
         }
         let empty_units = BTreeMap::new();
@@ -1073,7 +1068,7 @@ struct Inventory {
     environment: BTreeMap<String, String>,
     environment_policy: Value,
     declarations: Value,
-    methods: BTreeMap<String, Vec<chrono_judge_registration::execution::Method>>,
+    methods: BTreeMap<String, Vec<route_wire::Method>>,
 }
 
 /// Resolve only DELTA-required collection units through the adjudicator's current inventory/assignment owner.
@@ -1150,24 +1145,27 @@ fn full_collection_at(
         req.runner.path = runner.to_str().ok_or("runner path UTF8")?.into();
         req.runner.sha256 = digest;
         req.seal()?;
-        // Only the original producer may satisfy registration's requested migration units.
-        let migration = std::cell::RefCell::new(None);
-        let (old, r, _) =
-            chrono_judge_registration::views_for_collection_inputs_with(&req, &reader, &|units| {
-                let reports = originals(units)?;
-                migration.replace(Some(object!({"units":units,"originals":reports})));
-                Ok(reports)
-            })?;
-        let query = Query::full(root, r.config())?;
-        let mut collection = object!({"request":req,"migration":migration.into_inner()});
+        let query = Query::full(root, &cfg)?;
+        let mut evidence = source_observations::GitEvidence::default();
+        let (plans, migration) =
+            full_registration::collection(&req, &reader, &query, &mut evidence, originals)?;
+        let old = &plans.previous;
+        let r = &plans.candidate;
+        let mut collection = object!({"request":req,"migration":migration});
         let impact: impact_query::Obligations =
             query.read("chrono-judge-filemap", "collection-tests-v1", &collection)?;
         impact.require_valid("blocked full obligations")?;
         collection["tests"] = object!(impact.tests);
         collection["retired_tests"] = object!(impact.retired_tests);
         let selected = query.read("chrono-judge-routes", "collected-selection-v1", &collection)?;
-        let routes = route_query::full_operations(&query, &r, &selected, None)?;
-        let mut evidence = source_observations::GitEvidence::default();
+        let routes = route_query::full_operations(
+            &query,
+            &r.filemap,
+            &r.projects,
+            &plans.test_operations,
+            &selected,
+            None,
+        )?;
         let facts = reader.observation();
         route_query::source_plan(
             &query,
@@ -1175,9 +1173,16 @@ fn full_collection_at(
             profile,
             Some(route_query::SourceEndpoint::registered(
                 &req.base.commit,
-                &old,
+                &old.config,
+                &old.filemap,
+                &old.projects,
             )?),
-            route_query::SourceEndpoint::registered(&req.candidate.commit, &r)?,
+            route_query::SourceEndpoint::registered(
+                &req.candidate.commit,
+                &r.config,
+                &r.filemap,
+                &r.projects,
+            )?,
             &impact.reached,
             &routes.methods,
             &routes.operations,
@@ -1185,7 +1190,7 @@ fn full_collection_at(
             &mut evidence,
         )?;
         let git_facts = evidence.finish(facts);
-        let units = serde_json::from_value(r.config()["execution_units"]["units"].clone())
+        let units = serde_json::from_value(r.config["execution_units"]["units"].clone())
             .map_err(|e| e.to_string())?;
         Ok(
             object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":git_facts,"filemap_git_facts":impact.git_facts}),
@@ -1208,20 +1213,29 @@ pub fn full_scheduling_requirements(
     reader.verify_config(root, candidate)?;
     reader.verify_oid(root, base)?;
     reader.verify_oid(root, candidate)?;
-    let (old, current, view) = chrono_judge_registration::interpret_scheduling_with_reader(
-        &reader,
-        root,
-        base,
-        candidate,
-        profile,
-        reader.registry_values(root, base, profile)?,
-        reader.registry_values(root, candidate, profile)?,
-    )
-    .map_err(|e| {
-        format!("full scheduling requires directly readable historical registries: {e}")
-    })?;
-    let query = Query::full(root, current.config())?;
-    let impact: impact_query::Obligations = Query::full(root, current.config())?
+    let previous = reader.registry_values(root, base, profile)?;
+    let candidate_documents = reader.registry_values(root, candidate, profile)?;
+    let identity = chrono_harness::facts::registry_identity(&candidate_documents, profile)?;
+    let config = &candidate_documents[&identity.effective_path];
+    let query = Query::full(root, config)?;
+    reader.verify_config(root, candidate)?;
+    let facts = reader.observation();
+    let (binding, offset) = source_observations::binding(&facts)?;
+    let git = offset.map(|_| object!({"config":profile, "git_facts":binding}));
+    let reply: TransitionReply<FullPlanning> = query.read(
+        "chrono-judge-registration", "ci-transition-v1",
+        &object!({"config":profile,"base":base,"candidate":candidate,"documents":[previous,candidate_documents],
+            "git":git,"mode":"full-schedule","retired":[]}),
+    )?;
+    let mut evidence = source_observations::GitEvidence::default();
+    let plans = reply
+        .checked(&mut evidence, base, candidate, &binding, offset)
+        .map_err(|error| {
+            format!("full scheduling requires directly readable historical registries: {error}")
+        })?;
+    let old = &plans.previous;
+    let current = &plans.candidate;
+    let impact: impact_query::Obligations = Query::full(root, &current.config)?
         .with_git_environment(&reader.observation())?
         .read(
             "chrono-judge-filemap",
@@ -1230,19 +1244,35 @@ pub fn full_scheduling_requirements(
         )?;
     impact.require_valid("blocked full scheduling obligations")?;
     let selected = query.read("chrono-judge-routes", "global-selection", &object!({
-        "config":profile,"base":view["base"],"candidate":view["candidate"],"tests":impact.tests,"retired_tests":impact.retired_tests
+        "config":profile,"base":previous,"candidate":candidate_documents,"tests":impact.tests,"retired_tests":impact.retired_tests
     }))?;
-    let block = chrono_harness::units::full_execution_units(current.config())?
+    let block = chrono_harness::units::full_execution_units(&current.config)?
         .ok_or("full scheduling units missing")?;
-    let routes = route_query::full_operations(&query, &current, &selected, Some(&block))?;
-    let mut evidence = source_observations::GitEvidence::default();
+    let routes = route_query::full_operations(
+        &query,
+        &current.filemap,
+        &current.projects,
+        &plans.test_operations,
+        &selected,
+        Some(&block),
+    )?;
     let facts = reader.observation();
     route_query::source_plan(
         &query,
         "chrono-judge-routes",
         profile,
-        Some(route_query::SourceEndpoint::registered(base, &old)?),
-        route_query::SourceEndpoint::registered(candidate, &current)?,
+        Some(route_query::SourceEndpoint::registered(
+            base,
+            &old.config,
+            &old.filemap,
+            &old.projects,
+        )?),
+        route_query::SourceEndpoint::registered(
+            candidate,
+            &current.config,
+            &current.filemap,
+            &current.projects,
+        )?,
         &impact.reached,
         &routes.methods,
         &routes.operations,
@@ -1420,11 +1450,47 @@ fn check_registration_documents(
 #[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ScopedTransition {
+struct TransitionReply<T> {
     previous: String,
     candidate: String,
     git_facts: Value,
-    result: Result<TransitionData, String>,
+    result: Result<T, String>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl<T> TransitionReply<T> {
+    fn checked(
+        self,
+        evidence: &mut source_observations::GitEvidence,
+        previous: &str,
+        candidate: &str,
+        binding: &Value,
+        offset: Option<usize>,
+    ) -> Result<T, String> {
+        if self.previous != previous || self.candidate != candidate {
+            return Err("E_PLAN_BINDING: registration returned different CI endpoints".into());
+        }
+        evidence.record(binding, offset, self.git_facts)?;
+        self.result
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlanningEndpoint {
+    config: Value,
+    filemap: Value,
+    projects: Value,
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FullPlanning {
+    previous: PlanningEndpoint,
+    candidate: PlanningEndpoint,
+    test_operations: BTreeMap<String, Vec<String>>,
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -1546,13 +1612,19 @@ fn inventory_profile(
         false,
     )?;
     let (paths, mut selected, mut selection_explanation, affected) =
-        ci_impact(root, old.as_ref(), &new)?;
+        ci_impact(&query, program, root, old.as_ref(), &new)?;
     let consumption = consumption::check_scoped(
         &(&*reader, root.as_path()),
         req.base.as_deref(),
         &req.candidate,
         &p.filemap,
-        &p.projects,
+        |oid| {
+            if oid == req.candidate {
+                new.startup.as_ref()
+            } else {
+                old.as_ref()?.startup.as_ref()
+            }
+        },
         p.registration_config.as_deref(),
         &req.config_path,
         &paths,
@@ -1747,17 +1819,13 @@ fn inventory_profile(
         } else {
             object!("schedule")
         };
-        let transition: ScopedTransition = query.read(
+        let transition: TransitionReply<TransitionData> = query.read(
             program,
             "ci-transition-v1",
             &object!({"config":config_path,"base":base,"candidate":req.candidate,
                 "documents":[a,b],"mode":mode,"git":git,"retired":retired}),
         )?;
-        if transition.previous != *base || transition.candidate != req.candidate {
-            return Err("E_PLAN_BINDING: registration returned different CI endpoints".into());
-        }
-        evidence.record(&binding, offset, transition.git_facts)?;
-        let data = transition.result?;
+        let data = transition.checked(evidence, base, &req.candidate, &binding, offset)?;
         if !data.retirements.keys().eq(retired.iter()) {
             return Err("E_PLAN_BINDING: registration returned different retired tests".into());
         }
@@ -1785,7 +1853,7 @@ fn inventory_profile(
         .map(|(id, (owner, tool, argv, output_contract))| {
             (
                 id.clone(),
-                vec![chrono_judge_registration::execution::Method {
+                vec![route_wire::Method {
                     owner: format!("project:{owner}"),
                     operation: id.clone(),
                     tool: tool.clone(),
@@ -1866,7 +1934,7 @@ fn prepare_plan(
     config: &CheckConfig,
     selected: &BTreeSet<String>,
     new: &Snapshot,
-    methods: &BTreeMap<String, Vec<chrono_judge_registration::execution::Method>>,
+    methods: &BTreeMap<String, Vec<route_wire::Method>>,
     declarations: &Value,
     environment: BTreeMap<String, String>,
     reused: &BTreeMap<String, chrono_harness::observation::Tool>,

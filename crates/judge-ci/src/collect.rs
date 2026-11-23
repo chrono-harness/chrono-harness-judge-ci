@@ -1,11 +1,11 @@
 //! Offline verification of explicit unit reports. Business operations are never executed here.
 use super::*;
+use crate::route_wire::Method;
 use crate::route_wire::{Execution, Receipt};
 use chrono_harness::{
     ProcessResult,
     units::{Manifest, Scope},
 };
-use chrono_judge_registration::execution::Method;
 use std::io::Read;
 
 /// Decode the response recorded by a unit and bind it to the request and process exit.

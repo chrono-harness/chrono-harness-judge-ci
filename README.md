@@ -45,3 +45,7 @@ scoped CI 用候选宿主的 chrono-judge-registration 执行 `scoped-execution-
 采用 `execution_diagnostics: "chrono-log-stderr/v1"` 的宿主需安装支持 `trace-events-v1` 的 chrono-diagnostics。可以在同一份已绑定的 policy.tools 中指定其路径，默认从 PATH 解析。显式日志流、宿主滚动文件和业务回执可同时使用。日志写入失败会作为独立检查结果保留，业务操作的退出码及原始回执仍可读取。
 
 在 scoped 配置声明 `policy.registration_config` 的 DELTA 检查中，CI 从宿主选中的 `chrono-judge-registration` 调用 `ci-transition-v1`。该命令自登记工具 `v0.1.0-alpha.20` 提供。CI 核对提交身份与所选退役测试，保留历史转换和原成本，并把额外的 Git 进程按调用顺序写入现有报告。
+
+完整调度和收集使用已安装的 registration 解释两端登记与测试操作。调度遇到需要解码器的历史配置时拒绝执行。收集只从原报告提供方请求 registration 实际选中的迁移单元。scoped 启动消费从同一次端点检查中取得方法、计划和测试所有者。调度声明变化时才查询受资源或输出争用影响的测试。以上路径自 registration `v0.1.0-alpha.21` 提供。
+
+CI 的 Rust 产品及测试清单不再依赖 registration 源码。历史 Rust 再导出的快照、保留记录和引用语法函数由 registration 提供，原生用例和适用证明在该仓库执行。CI 接收公开命令的结果并保留自己的业务选择与回执。

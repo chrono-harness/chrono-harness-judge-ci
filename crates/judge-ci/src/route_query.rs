@@ -1,8 +1,8 @@
 //! Read scoped operation declarations and tool observations from the host's routes release.
 use super::route_wire::{Execution, Operation, Receipt};
 use crate::Snapshot;
+use crate::route_wire::{Method, Plan};
 use chrono_harness::observation::Tool;
-use chrono_judge_registration::execution::{Method, Plan};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -38,36 +38,24 @@ pub(super) struct FullOperations {
 /// Schedule and collect against the same interpreted endpoint, including retired bindings.
 pub(super) fn full_operations(
     query: &crate::impact_query::Query<'_>,
-    registrations: &chrono_judge_registration::Registrations,
+    filemap: &Value,
+    projects: &Value,
+    actions: &BTreeMap<String, Vec<String>>,
     selected: &BTreeSet<String>,
     execution_units: Option<&Value>,
 ) -> Result<FullOperations, String> {
-    let actions: BTreeMap<_, Vec<_>> = registrations
-        .test_bindings()
-        .into_iter()
-        .map(|(test, bindings)| {
-            (
-                test,
-                bindings
-                    .into_iter()
-                    .map(|binding| binding.operation)
-                    .collect(),
-            )
-        })
-        .collect();
     let response: FullOperations = query.read(
         "chrono-judge-routes",
         "full-operations-v1",
-        &json!({"selected":selected, "test_operations":actions, "filemap":registrations.filemap(),
-            "projects":registrations.projects(), "execution_units":execution_units}),
+        &json!({"selected":selected, "test_operations":actions, "filemap":filemap,
+            "projects":projects, "execution_units":execution_units}),
     )?;
     if !response.selected.keys().eq(selected.iter()) {
         return Err("E_PLAN_BINDING: routes selected different test plans".into());
     }
     for (test, plan) in &response.selected {
-        let declared: Plan =
-            serde_json::from_value(registrations.filemap()["execution_plans"][test].clone())
-                .map_err(|error| error.to_string())?;
+        let declared: Plan = serde_json::from_value(filemap["execution_plans"][test].clone())
+            .map_err(|error| error.to_string())?;
         if plan != &declared {
             return Err("E_PLAN_BINDING: routes selected different test plans".into());
         }
@@ -283,13 +271,15 @@ impl<'a> SourceEndpoint<'a> {
 
     pub fn registered(
         commit: &'a str,
-        views: &'a chrono_judge_registration::Registrations,
+        config: &'a Value,
+        filemap: &'a Value,
+        projects: &'a Value,
     ) -> Result<Self, String> {
         Ok(Self {
             commit,
-            filemap: views.filemap(),
-            projects: views.projects(),
-            artifacts: chrono_harness::facts::artifact_directories(views.config())?,
+            filemap,
+            projects,
+            artifacts: chrono_harness::facts::artifact_directories(config)?,
         })
     }
 }

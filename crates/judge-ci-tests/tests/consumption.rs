@@ -9,7 +9,6 @@ const PREPARATION: &str = ".chrono-harness/ci/bootstrap-unit.json";
 const CACHE: &str = ".chrono-harness/ci/bootstrap-cache.json";
 const CHECK: &str = ".chrono-harness/ci/check.json";
 const FM: &str = ".chrono-harness/FILEMAP.json";
-const PROJECTS: &str = ".chrono-harness/projects.json";
 const POLICY: &str = ".chrono-harness/git/macos-27.json";
 
 fn host() -> Endpoint {
@@ -19,7 +18,7 @@ fn host() -> Endpoint {
     Endpoint {
         adoption: read(CHECK)["policy"].get("causal_consumption").cloned(),
         filemap: read(FM),
-        projects: read(PROJECTS),
+        startup: Some(serde_json::from_value(read("startup_execution")).unwrap()),
         config: read(POLICY),
         config_paths: BTreeSet::from([POLICY.into()]),
         documents: [UNITS, STARTUP, CORE, CACHE, CHECK, PREPARATION]
@@ -32,16 +31,21 @@ fn host() -> Endpoint {
 fn paths(paths: &[&str]) -> BTreeSet<String> {
     paths.iter().map(|s| s.to_string()).collect()
 }
-fn action<'a>(s: &'a mut Endpoint, op: &str) -> &'a mut Value {
-    s.projects
-        .as_object_mut()
+fn method<'a>(s: &'a mut Endpoint, op: &str) -> &'a mut consumption::StartupMethod {
+    &mut s
+        .startup
+        .as_mut()
         .unwrap()
-        .iter_mut()
-        .filter(|(k, _)| k.as_str() == "projects" || k.as_str() == "scripts")
-        .flat_map(|(_, v)| v.as_array_mut().unwrap())
-        .flat_map(|r| r["actions"].as_object_mut().unwrap().values_mut())
-        .find(|a| a["operation"] == op)
+        .methods
+        .as_mut()
         .unwrap()
+        .get_mut(op)
+        .unwrap()[0]
+}
+fn retire_method(s: &mut Endpoint, op: &str, new_id: &str) {
+    let methods = s.startup.as_mut().unwrap().methods.as_mut().unwrap();
+    let previous = methods.remove(op).unwrap();
+    assert!(methods.insert(new_id.to_owned(), previous).is_none());
 }
 
 #[test]
@@ -92,10 +96,9 @@ fn startup_commands_preserve_registered_arguments() {
         "host.bootstrap-shared-install-unit_runner",
     ] {
         let mut candidate = host();
-        action(&mut candidate, operation)["argv"]
-            .as_array_mut()
-            .unwrap()
-            .insert(0, json!("-B"));
+        method(&mut candidate, operation)
+            .argv
+            .insert(0, "-B".into());
         let error =
             consumption::validate_delta(Some(&old), &candidate, &paths(&[CORE]), &BTreeSet::new())
                 .unwrap_err();
@@ -191,13 +194,10 @@ fn affected_chain_rejects_missing_dangling_and_misbound_truths() {
                     ["output_use"] = json!("")
             }
             "caller" => {
-                action(&mut s, "host.bootstrap-shared-install-unit_runner")["argv"][4] =
-                    json!("unit_ci")
+                method(&mut s, "host.bootstrap-shared-install-unit_runner").argv[4] =
+                    "unit_ci".into()
             }
-            "producer" => {
-                action(&mut s, "host.bootstrap-shared-produce")["operation"] =
-                    json!("retired.produce")
-            }
+            "producer" => retire_method(&mut s, "host.bootstrap-shared-produce", "retired.produce"),
             "unit" => {
                 s.documents.get_mut(UNITS).unwrap()["units"]
                     .as_object_mut()
@@ -229,16 +229,23 @@ fn affected_chain_rejects_missing_dangling_and_misbound_truths() {
             }
             "check" => s.config["canonical_check"]["argv"] = json!(["some-other-runner", "check"]),
             "verify" => {
-                action(&mut s, "host.bootstrap-shared-verify-core")["argv"][4] =
-                    json!("absent-profile")
+                method(&mut s, "host.bootstrap-shared-verify-core").argv[4] =
+                    "absent-profile".into()
             }
-            "evidence-method" => {
-                action(&mut s, "test.host-bootstrap-native-tests")["operation"] =
-                    json!("retired.evidence")
-            }
+            "evidence-method" => retire_method(
+                &mut s,
+                "test.host-bootstrap-native-tests",
+                "retired.evidence",
+            ),
             "evidence-plan" => {
-                s.filemap["execution_plans"]["test:host-bootstrap-native-tests"]["operations"] =
-                    json!(["build.host-bootstrap-native"])
+                *s.startup
+                    .as_mut()
+                    .unwrap()
+                    .plans
+                    .as_mut()
+                    .unwrap()
+                    .get_mut("test:host-bootstrap-native-tests")
+                    .unwrap() = vec!["build.host-bootstrap-native".into()]
             }
             "evidence-output" => {
                 s.filemap["execution_scheduling"]["claims"]["test.host-bootstrap-native-tests"]
@@ -359,7 +366,7 @@ fn both_endpoints_select_removed_inputs_and_old_owners_without_global_rejudgment
             .is_err()
     );
     // Old operation owners select a defect even after the candidate moves that action.
-    action(&mut new, "build.runner")["operation"] = json!("retired.runner");
+    retire_method(&mut new, "build.runner", "retired.runner");
     assert!(
         consumption::validate_delta(
             Some(&old),
@@ -450,6 +457,7 @@ fn scoped_adapter_reads_only_the_requested_endpoints_and_preserves_failures() {
         serde_json::from_str(include_str!("fixtures/startup.json")).unwrap();
     let mut candidate = base.clone();
     candidate.get_mut(CORE).unwrap()["install"][0]["source"] = json!("wrong/producer");
+    let startup = serde_json::from_value(base["startup_execution"].clone()).unwrap();
     let docs = Documents { base, candidate };
     let check = |oid: &str, changed: &BTreeSet<String>| {
         consumption::check_scoped(
@@ -457,7 +465,7 @@ fn scoped_adapter_reads_only_the_requested_endpoints_and_preserves_failures() {
             Some("base"),
             oid,
             FM,
-            PROJECTS,
+            |_| Some(&startup),
             Some(POLICY),
             CHECK,
             changed,

@@ -1,7 +1,6 @@
 //! Opted-in internal consumption references. These checks establish consistency,
 //! not the engineering judgment that a need or an output is useful.
 use chrono_harness::{facts::Reader, json, relative_path};
-use chrono_judge_registration::execution;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -111,18 +110,40 @@ pub fn contract(value: Option<&Value>) -> Result<BTreeMap<String, Chain>, String
     Ok(rows)
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StartupDeclarations {
+    pub methods: Result<BTreeMap<String, Vec<StartupMethod>>, String>,
+    pub plans: Result<BTreeMap<String, Vec<String>>, String>,
+    pub owners: Result<BTreeMap<String, Vec<String>>, String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StartupMethod {
+    pub owner: String,
+    pub tool: String,
+    pub argv: Vec<String>,
+}
+
 /// Fixed endpoint data. Only paths explicitly referenced by the adopted chain
 /// are loaded; unavailable bytes remain unavailable until that chain is checked.
 pub struct Endpoint {
     pub adoption: Option<Value>,
     pub filemap: Value,
-    pub projects: Value,
+    pub startup: Option<StartupDeclarations>,
     pub config: Value,
     pub config_paths: BTreeSet<String>,
     pub documents: BTreeMap<String, Value>,
     pub unavailable: BTreeMap<String, String>,
 }
 impl Endpoint {
+    fn declarations(&self) -> Result<&StartupDeclarations, String> {
+        self.startup
+            .as_ref()
+            .ok_or_else(|| "missing startup execution declarations".to_owned())
+    }
+
     fn document(&self, path: &str) -> Result<&Value, String> {
         if !self.filemap["files"]
             .as_array()
@@ -199,7 +220,11 @@ impl Endpoint {
         paths: &BTreeSet<String>,
         nodes: &BTreeSet<String>,
     ) -> Result<bool, String> {
-        let methods = execution::methods(&self.projects)?;
+        let methods = self
+            .declarations()?
+            .methods
+            .as_ref()
+            .map_err(Clone::clone)?;
         Ok(self
             .paths(c)
             .iter()
@@ -290,8 +315,9 @@ fn validate_chain(s: &Endpoint, c: &Chain) -> Result<(), String> {
     if !units["units"][unit].is_object() {
         return Err("dangling unit caller".into());
     }
-    let methods = execution::methods(&s.projects)?;
-    let method = |id: &str| -> Result<&execution::Method, String> {
+    let declarations = s.declarations()?;
+    let methods = declarations.methods.as_ref().map_err(Clone::clone)?;
+    let method = |id: &str| -> Result<&StartupMethod, String> {
         match methods.get(id).map(Vec::as_slice) {
             Some([m]) => Ok(m),
             _ => Err(format!("missing/ambiguous operation {id}")),
@@ -505,18 +531,26 @@ fn validate_chain(s: &Endpoint, c: &Chain) -> Result<(), String> {
     }
     for test in check["policy"]["units"][unit]["tests"].as_array().unwrap() {
         let test = nonempty(test)?;
-        if !execution::plans(&s.filemap)?.contains_key(test) {
+        if !declarations
+            .plans
+            .as_ref()
+            .map_err(Clone::clone)?
+            .contains_key(test)
+        {
             return Err(format!("dangling check test {test}"));
         }
     }
     let evidence = method(&c.evidence.operation)?;
-    let bindings = execution::test_bindings(&s.projects)?;
+    let bindings = declarations.owners.as_ref().map_err(Clone::clone)?;
     if !bindings
         .get(&c.evidence.test)
-        .is_some_and(|v| v.len() == 1 && v[0].owner == evidence.owner)
-        || !execution::plans(&s.filemap)?
+        .is_some_and(|v| v.len() == 1 && v[0] == evidence.owner)
+        || !declarations
+            .plans
+            .as_ref()
+            .map_err(Clone::clone)?
             .get(&c.evidence.test)
-            .is_some_and(|p| p.operations.contains(&c.evidence.operation))
+            .is_some_and(|p| p.contains(&c.evidence.operation))
         || s.filemap["execution_scheduling"]["claims"][&c.evidence.operation]["outputs"]
             .as_array()
             .is_none()
@@ -557,12 +591,12 @@ impl ScopedDocuments for (&Reader, &Path) {
 
 /// The scoped adapter delegates admission and evidence obligations to this owner.
 /// Both endpoints are immutable candidate-readable data; no old executable runs.
-pub fn check_scoped(
+pub fn check_scoped<'a>(
     source: &impl ScopedDocuments,
     base: Option<&str>,
     candidate: &str,
     filemap: &str,
-    projects: &str,
+    startup: impl Fn(&str) -> Option<&'a StartupDeclarations>,
     config: Option<&str>,
     profile: &str,
     changed: &BTreeSet<String>,
@@ -593,7 +627,7 @@ pub fn check_scoped(
         let mut s = Endpoint {
             adoption: check["policy"].get("causal_consumption").cloned(),
             filemap: read(filemap)?,
-            projects: read(projects)?,
+            startup: startup(oid).cloned(),
             config: Value::Null,
             config_paths: BTreeSet::new(),
             documents: BTreeMap::new(),
