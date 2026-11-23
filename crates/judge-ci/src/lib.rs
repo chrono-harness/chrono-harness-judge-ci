@@ -14,6 +14,8 @@ mod project_pairs;
 #[cfg(not(verus_keep_ghost))]
 mod route_query;
 #[cfg(not(verus_keep_ghost))]
+mod route_wire;
+#[cfg(not(verus_keep_ghost))]
 mod source_observations;
 #[cfg(not(verus_keep_ghost))]
 use impact_query::{Edge, Query};
@@ -1704,17 +1706,19 @@ fn inventory_profile(
     })
 }
 #[cfg(not(verus_keep_ghost))]
-fn operation_state_path(req: &Request, config: &CheckConfig) -> Result<String, String> {
-    let report = req
+fn report_path(req: &Request, config: &CheckConfig) -> Result<String, String> {
+    Ok(req
         .scope
         .as_ref()
         .map(|scope| scope.report_path(config))
         .transpose()?
-        .unwrap_or_else(|| config.report_path.clone());
-    Ok(chrono_judge_routes::operation_state_path(
-        &report,
-        &object!(req.request_id),
-    ))
+        .unwrap_or_else(|| config.report_path.clone()))
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn scoped_binding(req: &Request) -> Value {
+    object!({"base":req.base,"candidate":req.candidate,"config":req.config_sha256,
+        "run":req.request_id,"entry":req.observations["entry"]})
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -1727,13 +1731,26 @@ fn prepare_plan(
     declarations: &Value,
     environment: BTreeMap<String, String>,
     reused: &BTreeMap<String, chrono_harness::observation::Tool>,
-) -> Result<chrono_judge_routes::Execution, String> {
+) -> Result<route_wire::Execution, String> {
     tracing::info_span!("ci.phase", phase = "prepare").in_scope(|| {
-        tracing::info!(event_id = "ci.phase_started", "preparing registered operation plan and tools");
-        route_query::Graph { selected, plans: &new.plans, methods, execute: &new.execute }.prepare(
-            &req.host_root, new,
-            object!({"base":req.base,"candidate":req.candidate,"config":req.config_sha256,"run":req.request_id,"entry":req.observations["entry"],"operation_state":operation_state_path(req, config)?}),
-            declarations, &environment, reused,
+        tracing::info!(
+            event_id = "ci.phase_started",
+            "preparing registered operation plan and tools"
+        );
+        route_query::Graph {
+            selected,
+            plans: &new.plans,
+            methods,
+            execute: &new.execute,
+        }
+        .prepare(
+            &req.host_root,
+            new,
+            scoped_binding(req),
+            &report_path(req, config)?,
+            declarations,
+            &environment,
+            reused,
         )
     })
 }
@@ -1741,7 +1758,7 @@ fn prepare_plan(
 #[cfg(not(verus_keep_ghost))]
 fn execute_plan(
     req: &Request,
-    plan: &chrono_judge_routes::Execution,
+    plan: &route_wire::Execution,
     tools: &BTreeMap<String, Value>,
     policy: &Policy,
     errors: &mut Vec<String>,

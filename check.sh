@@ -36,11 +36,13 @@ proof_bindings=(--extern "chrono_identifiers=$scratch/libchrono_identifiers.rlib
 cargo metadata --locked --format-version 1 --manifest-path crates/judge-ci/Cargo.toml > "$scratch/packages.json"
 export CHRONO_VERUS_RESULT_TYPES="$scratch/result_types.rs"
 jq -er '[.packages[] | select(.name == "chrono-harness") | .manifest_path | sub("Cargo.toml$"; "src/verified_status.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] pub mod result_types;"' "$scratch/packages.json" > "$CHRONO_VERUS_RESULT_TYPES"
-export CHRONO_VERUS_CONTINUITY_PLAN="$scratch/continuity_plan.rs"
-jq -er '[.packages[] | select(.name == "chrono-judge-routes") | .manifest_path | sub("Cargo.toml$"; "src/lib.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] mod continuity_plan;"' "$scratch/packages.json" > "$CHRONO_VERUS_CONTINUITY_PLAN"
 export CHRONO_VERUS_SOURCE_VERIFIER="$scratch/source_verifier.rs"
 jq -er '[.packages[] | select(.name == "chrono-harness") | .manifest_path | sub("Cargo.toml$"; "src/verified_verifier.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] pub mod source_verifier;"' "$scratch/packages.json" > "$CHRONO_VERUS_SOURCE_VERIFIER"
 export CHRONO_VERUS_SOURCE_REGISTRATION="$scratch/source_registration.rs"
 jq -er '[.packages[] | select(.name == "chrono-judge-registration") | .manifest_path | sub("Cargo.toml$"; "src/lib.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] mod source_registration;"' "$scratch/packages.json" > "$CHRONO_VERUS_SOURCE_REGISTRATION"
 prove verify.ci-collection crates/judge-ci/src/verified_collection.rs
+# The three concrete source-plan contract cases still exercise the pinned routes proof.
+cargo metadata --locked --format-version 1 --manifest-path crates/judge-ci-tests/Cargo.toml > "$scratch/test-packages.json"
+export CHRONO_VERUS_CONTINUITY_PLAN="$scratch/continuity_plan.rs"
+jq -er '[.packages[] | select(.name == "chrono-judge-routes") | .manifest_path | sub("Cargo.toml$"; "src/lib.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] mod continuity_plan;"' "$scratch/test-packages.json" > "$CHRONO_VERUS_CONTINUITY_PLAN"
 prove verify.ci-collection-tests crates/judge-ci-tests/tests/verified_collection.rs

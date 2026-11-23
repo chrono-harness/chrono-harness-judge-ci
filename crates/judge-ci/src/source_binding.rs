@@ -17,6 +17,8 @@ pub fn observe_candidate_bytes<P, C, N, R, F>(producer: P, candidate: C, paths: 
 }
 
 #[cfg(not(verus_keep_ghost))]
+use crate::route_wire::{Operation, Receipt};
+#[cfg(not(verus_keep_ghost))]
 use chrono_harness::{
     Request,
     facts::Reader,
@@ -25,8 +27,6 @@ use chrono_harness::{
         sources::{CandidateSourceRead, SourceRegistry},
     },
 };
-#[cfg(not(verus_keep_ghost))]
-use chrono_judge_routes::{Operation, Receipt};
 #[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeMap;
 
@@ -73,7 +73,15 @@ impl CompilerReportRead for CandidateIo<'_> {
 /// 只借用现役计划及同一原回执的字段；选择、比较和准入都由 Verus 所有者执行。
 #[cfg(not(verus_keep_ghost))]
 pub(super) fn invocations(operations: &[Operation]) -> Vec<ProofInvocation<'_>> {
-    chrono_judge_routes::proof_invocations(operations)
+    operations
+        .iter()
+        .map(|step| ProofInvocation {
+            operation: &step.method.operation,
+            argv: &step.method.argv,
+            output_contract: &step.method.output_contract,
+            output_limit_bytes: step.output_limit_bytes,
+        })
+        .collect()
 }
 
 #[cfg(not(verus_keep_ghost))]

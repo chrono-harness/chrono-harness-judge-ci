@@ -1,6 +1,6 @@
 //! Consume the installed project executor. Child operations keep their own command limits.
 use crate::route_query::installed;
-use chrono_judge_routes::{Execution, Receipt};
+use crate::route_wire::{Execution, Receipt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{

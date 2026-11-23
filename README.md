@@ -33,3 +33,5 @@ scoped 计划从已安装的 routes 查询。调度和回放使用 `scoped-opera
 完整 CI 调度与收集调用 routes 的 `full-operations-v1`。它们传入各端点已解释的登记和当前测试的操作绑定，包括历史解释结果。调度核对所有测试的单元归属，收集回放原始操作顺序。完整收集接受宿主登记的 runner 文件链接，核对其真实文件的摘要、配置版本和父目录。
 
 完整与 scoped CI 都将两端的登记、受影响节点和有序操作提交给 routes 的 `source-plan-v1`。judge-ci 核对返回的提交与 Git 绑定，将 routes 的读取按实际发生顺序写入 `git_facts`，并将其判定错误交给调用方。
+
+scoped CI 把原请求的绑定字段及报告路径交给 routes 生成计划，收集时用 `check-scoped-plan-v1` 校验原件。生产 Cargo 清单仅按 JSON 协议消费 routes。专属测试仍对固定 routes 源码检查三个具体的证明计划边界。

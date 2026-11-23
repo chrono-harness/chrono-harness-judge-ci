@@ -1,8 +1,8 @@
 //! Read scoped operation declarations and tool observations from the host's routes release.
+use super::route_wire::{Execution, Operation, Receipt};
 use crate::Snapshot;
 use chrono_harness::observation::Tool;
 use chrono_judge_registration::execution::{Method, Plan};
-use chrono_judge_routes::{Execution, Operation, Receipt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -129,17 +129,17 @@ impl Graph<'_> {
         root: &Path,
         snapshot: &Snapshot,
         binding: Value,
+        report_path: &str,
         declarations: &Value,
         environment: &BTreeMap<String, String>,
         reused: &BTreeMap<String, Tool>,
     ) -> Result<Execution, String> {
         let program = installed(root, &snapshot.tools, "chrono-judge-routes")?;
-        let request = json!({"graph":self,"binding":binding,"declarations":declarations,
+        let request = json!({"graph":self,"binding":binding,"report_path":report_path,"declarations":declarations,
             "environment":environment,"reused":reused,"scheduling":snapshot.scheduling});
         let plan: Execution = read(root, &program, "prepare-scoped-plan-v1", &request)?;
-        check_plan(root, &program, &plan)?;
-        if plan.binding != binding
-            || plan.root != root.canonicalize().map_err(|e| e.to_string())?
+        check_scoped_plan(root, &program, &plan, &binding, report_path)?;
+        if plan.root != root.canonicalize().map_err(|e| e.to_string())?
             || !plan.selected.keys().eq(self.selected.iter())
             || plan
                 .selected
@@ -159,8 +159,19 @@ struct PlanIdentity {
     plan: String,
 }
 
-pub(super) fn check_plan(root: &Path, program: &Path, plan: &Execution) -> Result<(), String> {
-    let reply: PlanIdentity = read(root, program, "check-plan-v1", plan)?;
+pub(super) fn check_scoped_plan(
+    root: &Path,
+    program: &Path,
+    plan: &Execution,
+    binding: &Value,
+    report_path: &str,
+) -> Result<(), String> {
+    let reply: PlanIdentity = read(
+        root,
+        program,
+        "check-scoped-plan-v1",
+        &json!({"plan":plan, "binding":binding, "report_path":report_path}),
+    )?;
     if reply.plan != plan.identity {
         return Err("E_PLAN_IDENTITY: routes returned a different plan".into());
     }

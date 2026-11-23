@@ -26,13 +26,7 @@ use result_types::{CheckResult, Status};
 #[path = "source_binding.rs"]
 mod source_binding;
 #[cfg(verus_keep_ghost)]
-include!(env!("CHRONO_VERUS_CONTINUITY_PLAN"));
-#[cfg(verus_keep_ghost)]
 include!(env!("CHRONO_VERUS_SOURCE_VERIFIER"));
-#[cfg(not(verus_keep_ghost))]
-pub use chrono_judge_routes::validate_source_plan;
-#[cfg(verus_keep_ghost)]
-pub use continuity_plan::validate_source_plan;
 
 #[cfg(verus_keep_ghost)]
 include!(env!("CHRONO_VERUS_SOURCE_REGISTRATION"));
