@@ -26,6 +26,8 @@ prove() {
 
 prove verify.ci-collection crates/judge-ci/src/verified_collection.rs
 
+prove verify.ci-collection-tests crates/judge-ci-tests/tests/verified_collection.rs
+
 # The remaining cross-product contract tests use the exact Cargo input revisions.
 identifiers_manifest=$(cargo metadata --locked --manifest-path crates/judge-ci/Cargo.toml --format-version 1 |
   jq -er '[.packages[] | select(.name == "chrono-identifiers") | .manifest_path] | select(length == 1) | first')
@@ -41,6 +43,6 @@ jq -er '[.packages[] | select(.name == "chrono-judge-registration") | .manifest_
 cargo metadata --locked --format-version 1 --manifest-path crates/judge-ci-tests/Cargo.toml > "$scratch/test-packages.json"
 export CHRONO_VERUS_CONTINUITY_PLAN="$scratch/continuity_plan.rs"
 jq -er '[.packages[] | select(.name == "chrono-judge-routes") | .manifest_path | sub("Cargo.toml$"; "src/lib.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] mod continuity_plan;"' "$scratch/test-packages.json" > "$CHRONO_VERUS_CONTINUITY_PLAN"
-prove verify.ci-collection-tests crates/judge-ci-tests/tests/verified_collection.rs \
+prove verify.product-contract-tests crates/judge-ci-tests/tests/product_contracts.rs \
   --extern "chrono_identifiers=$scratch/libchrono_identifiers.rlib" \
   --import "chrono_identifiers=$scratch/chrono_identifiers.vir"

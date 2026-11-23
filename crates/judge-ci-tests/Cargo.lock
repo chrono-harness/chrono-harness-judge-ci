@@ -108,6 +108,7 @@ dependencies = [
  "chrono-judge-routes",
  "serde",
  "serde_json",
+ "vstd",
 ]
 
 [[package]]
