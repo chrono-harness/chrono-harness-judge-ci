@@ -1401,6 +1401,25 @@ fn inventory(
     )
 }
 #[cfg(not(verus_keep_ghost))]
+fn check_registration_documents(
+    query: &Query<'_>,
+    program: &str,
+    entry: &str,
+    documents: &BTreeMap<String, Value>,
+    effective: &str,
+) -> Result<(), String> {
+    let admitted: String = query.read(
+        program,
+        "check-documents-v1",
+        &object!({"entry": entry, "documents": documents}),
+    )?;
+    if admitted != effective {
+        return Err("registration admitted a different effective configuration".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(verus_keep_ghost))]
 fn inventory_profile(
     req: &Request,
     reader: &mut Reader,
@@ -1543,7 +1562,13 @@ fn inventory_profile(
             let identity = chrono_harness::facts::registry_identity(&values, config_path)?;
             let cfg = &values[&identity.effective_path];
             if cfg["schema_version"] == 4 {
-                chrono_judge_registration::Registrations::load(&values, config_path)?;
+                check_registration_documents(
+                    &query,
+                    program,
+                    config_path,
+                    &values,
+                    &identity.effective_path,
+                )?;
                 let c = chrono_harness::prepared::declaration(cfg)?;
                 let mut argv = c.argv;
                 if let Some(scope) = &req.scope {
@@ -1611,7 +1636,13 @@ fn inventory_profile(
             .get(&b_identity.effective_path)
             .ok_or("missing effective candidate registration config")?;
         if b_config["schema_version"] == 4 {
-            chrono_judge_registration::Registrations::load(&b, config_path)?;
+            check_registration_documents(
+                &query,
+                program,
+                config_path,
+                &b,
+                &b_identity.effective_path,
+            )?;
         }
         let mut template: Vec<String> =
             serde_json::from_value(b_config["canonical_check"]["argv"].clone())
