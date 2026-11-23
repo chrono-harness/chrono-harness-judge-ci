@@ -13,6 +13,12 @@ use chrono_harness::verus;
 use chrono_judge_ci::verified_collection as policy;
 use policy::result_types::{CheckResult, Status};
 #[cfg(verus_keep_ghost)]
+include!(env!("CHRONO_VERUS_CONTINUITY_PLAN"));
+#[cfg(not(verus_keep_ghost))]
+use chrono_judge_routes::validate_source_plan;
+#[cfg(verus_keep_ghost)]
+use continuity_plan::validate_source_plan;
+#[cfg(verus_keep_ghost)]
 use policy::source_verifier;
 #[cfg(verus_keep_ghost)]
 use policy::source_verifier::identifiers as source_identifiers;
@@ -487,7 +493,7 @@ fn combined_source_plan_keeps_base_errors_before_affected_file_errors() {
     }], Some(true));
     let nodes = vec!["file:x".to_string()];
     let empty = source_verifier::sources::continuity::Continuity::empty();
-    let result = policy::validate_source_plan(&registry, Err("原基线错误\0é"),
+    let result = validate_source_plan(&registry, Err("原基线错误\0é"),
         &nodes, &Vec::new(), &Vec::new(), &empty);
     expect_continuity_bool(result.is_err());
     let exact = match result { Err(error) => source_identifiers::equal_text(error.path, "原基线错误\0é"), Ok(_) => false };
@@ -511,7 +517,7 @@ fn combined_source_plan_rejects_unknown_after_a_successful_inventory() {
             assert(nodes[0]@ == "file:"@ + "x"@);
         }
     }
-    let result = policy::validate_source_plan(&registry, Ok(Some(&registry)),
+    let result = validate_source_plan(&registry, Ok(Some(&registry)),
         &nodes, &Vec::new(), &Vec::new(), &empty);
     expect_continuity_bool(result.is_err());
     let exact = match result { Err(error) => source_identifiers::equal_text(error.message,
@@ -523,7 +529,7 @@ fn combined_source_plan_rejects_unknown_after_a_successful_inventory() {
 fn combined_source_plan_accepts_the_complete_empty_initial_inventory() {
     let registry = source_verifier::sources::source_registry(Vec::new(), Some(true));
     let empty = source_verifier::sources::continuity::Continuity::empty();
-    let result = policy::validate_source_plan(&registry, Ok(None),
+    let result = validate_source_plan(&registry, Ok(None),
         &Vec::new(), &Vec::new(), &Vec::new(), &empty);
     expect_continuity_bool(result.is_ok());
 }

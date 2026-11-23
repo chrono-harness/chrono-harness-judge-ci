@@ -1,11 +1,11 @@
 //! Offline verification of explicit unit reports. Business operations are never executed here.
 use super::*;
+use crate::route_wire::{Execution, Receipt};
 use chrono_harness::{
     ProcessResult,
     units::{Manifest, Scope},
 };
 use chrono_judge_registration::execution::Method;
-use chrono_judge_routes::{Execution, Receipt};
 use std::io::Read;
 
 fn read(
@@ -396,11 +396,14 @@ pub(super) fn collect(
             serde_json::from_value(e["plan"].clone()).map_err(|e| e.to_string())?;
         let routes =
             super::route_query::installed(&req.host_root, &snapshot.tools, "chrono-judge-routes")?;
-        super::route_query::check_plan(&req.host_root, &routes, &plan)?;
-        if plan.root != original.host_root
-            || plan.binding
-                != object!({"base":req.base,"candidate":req.candidate,"config":req.config_sha256,"run":original.request_id,"entry":original.observations["entry"],"operation_state":super::operation_state_path(&original, config)?})
-        {
+        super::route_query::check_scoped_plan(
+            &req.host_root,
+            &routes,
+            &plan,
+            &super::scoped_binding(&original),
+            &super::report_path(&original, config)?,
+        )?;
+        if plan.root != original.host_root {
             return Err("unit plan binding mismatch".into());
         }
         let literals = environment_policy["values"]
