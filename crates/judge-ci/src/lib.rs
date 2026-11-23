@@ -5,6 +5,8 @@ use chrono_harness::{
     CheckConfig, PROTOCOL, Request, Response, decode, json, relative_path, sha256,
 };
 #[cfg(not(verus_keep_ghost))]
+pub mod consumption;
+#[cfg(not(verus_keep_ghost))]
 pub mod impact_query;
 #[cfg(not(verus_keep_ghost))]
 mod project_execution;
@@ -16,6 +18,7 @@ mod route_query;
 mod route_wire;
 #[cfg(not(verus_keep_ghost))]
 mod source_observations;
+pub mod verified_consumption;
 #[cfg(not(verus_keep_ghost))]
 use impact_query::{Edge, Query};
 #[cfg(not(verus_keep_ghost))]
@@ -1494,9 +1497,8 @@ fn inventory_profile(
     )?;
     let (paths, mut selected, mut selection_explanation, affected) =
         ci_impact(root, old.as_ref(), &new)?;
-    let consumption = chrono_judge_registration::consumption::check_scoped(
-        reader,
-        root,
+    let consumption = consumption::check_scoped(
+        &(&*reader, root.as_path()),
         req.base.as_deref(),
         &req.candidate,
         &p.filemap,

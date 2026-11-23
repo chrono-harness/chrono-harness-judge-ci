@@ -28,3 +28,6 @@ prove() {
 prove verify.ci-collection crates/judge-ci/src/verified_collection.rs
 
 prove verify.ci-collection-tests crates/judge-ci-tests/tests/verified_collection.rs
+
+prove verify.ci-preparation crates/judge-ci/src/verified_consumption.rs
+prove verify.ci-preparation-tests crates/judge-ci-tests/tests/verified_consumption.rs
