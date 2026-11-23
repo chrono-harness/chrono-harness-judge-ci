@@ -124,16 +124,6 @@ impl Graph<'_> {
         Ok(result)
     }
 
-    pub fn scoped_order(
-        &self,
-        root: &Path,
-        snapshot: &Snapshot,
-        binding: Option<&Value>,
-    ) -> Result<Ordered, String> {
-        let program = installed(root, &snapshot.tools, "chrono-judge-routes")?;
-        self.ordered(root, &program, binding)
-    }
-
     pub fn prepare(
         &self,
         root: &Path,
@@ -255,4 +245,94 @@ fn read<T: serde::de::DeserializeOwned>(
         return Err("E_PLAN_BINDING: routes executable changed".into());
     }
     chrono_harness::decode(&output.stdout)
+}
+
+#[derive(Serialize)]
+pub(super) struct SourceEndpoint<'a> {
+    pub commit: &'a str,
+    pub filemap: &'a Value,
+    pub projects: &'a Value,
+    pub artifacts: Vec<&'a str>,
+}
+
+impl<'a> SourceEndpoint<'a> {
+    pub fn scoped(commit: &'a str, snapshot: &'a Snapshot) -> Self {
+        Self {
+            commit,
+            filemap: &snapshot.filemap,
+            projects: &snapshot.registry,
+            artifacts: snapshot
+                .policy
+                .artifacts
+                .iter()
+                .map(String::as_str)
+                .collect(),
+        }
+    }
+
+    pub fn registered(
+        commit: &'a str,
+        views: &'a chrono_judge_registration::Registrations,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            commit,
+            filemap: views.filemap(),
+            projects: views.projects(),
+            artifacts: chrono_harness::facts::artifact_directories(views.config())?,
+        })
+    }
+}
+
+/// The route planner owns proof admission. Keep its real Git observations in the
+/// same sequence as the caller's facts, and accept them only for the same binding.
+pub(super) fn source_plan(
+    query: &crate::impact_query::Query<'_>,
+    program: &str,
+    config: &str,
+    previous: Option<SourceEndpoint<'_>>,
+    candidate: SourceEndpoint<'_>,
+    affected: &BTreeSet<String>,
+    methods: &BTreeMap<String, Vec<Method>>,
+    operations: &[Operation],
+    facts: &Value,
+    evidence: &mut crate::source_observations::GitEvidence,
+) -> Result<(), String> {
+    let binding = facts
+        .as_object()
+        .map(|fields| {
+            Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| *key != "processes")
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            )
+        })
+        .unwrap_or(Value::Null);
+    let offset = if binding.is_null() {
+        None
+    } else {
+        Some(
+            facts["processes"]
+                .as_array()
+                .ok_or("E_GIT_FACTS: missing caller processes")?
+                .len(),
+        )
+    };
+    let git = offset.map(|_| json!({"config":config, "git_facts":binding}));
+    let reply = query.read(
+        program,
+        "source-plan-v1",
+        &json!({
+            "git":git, "previous":previous, "candidate":candidate, "affected":affected,
+            "methods":methods, "operations":operations
+        }),
+    )?;
+    evidence.admit(
+        previous.map(|e| e.commit),
+        candidate.commit,
+        &binding,
+        offset,
+        reply,
+    )
 }

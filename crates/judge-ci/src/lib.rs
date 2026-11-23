@@ -1,61 +1,4 @@
 #![allow(unexpected_cfgs)]
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
-#[cfg(verus_keep_ghost)]
-use vstd::prelude::*;
-
-verus! {
-
-pub open spec fn source_pipeline_result<S, P, C, N, T, R, E, O, V>(
-    initial: S, previous: P, candidate: C, paths: N, observe: O, validate: V,
-    out: (S, Result<R, E>),
-) -> bool
-    where O: FnOnce(S, P, C, N) -> (S, Result<T, E>),
-        V: FnOnce(S, T) -> (S, Result<R, E>),
-{
-    exists|observed: (S, Result<T, E>)|
-        observe.ensures((initial, previous, candidate, paths), observed)
-        && match observed.1 {
-            Err(error) => out.0 == observed.0 && out.1 == Err::<R, E>(error),
-            Ok(evidence) => validate.ensures((observed.0, evidence), out),
-        }
-}
-
-/// 原两端和所选路径只观察一次；验证只接收该次观察的完整原结果。
-pub fn with_source_continuity<S, P, C, N, T, R, E, O, V>(
-    state: S, previous: P, candidate: C, paths: N, observe: O, validate: V,
-) -> (out: (S, Result<R, E>))
-    where O: FnOnce(S, P, C, N) -> (S, Result<T, E>),
-        V: FnOnce(S, T) -> (S, Result<R, E>),
-    requires forall|s: S, p: P, c: C, n: N| observe.requires((s, p, c, n)),
-        forall|s: S, evidence: T| validate.requires((s, evidence)),
-    ensures source_pipeline_result(state, previous, candidate, paths, observe, validate, out),
-{
-    let ghost initial = state;
-    let ghost p = previous;
-    let ghost c = candidate;
-    let ghost n = paths;
-    let observed = observe(state, previous, candidate, paths);
-    let ghost observation = observed;
-    let (state, result) = observed;
-    let out = match result {
-        Err(error) => (state, Err(error)),
-        Ok(evidence) => validate(state, evidence),
-    };
-    proof {
-        assert(observe.ensures((initial, p, c, n), observation));
-        assert(exists|observed: (S, Result<T, E>)|
-            observe.ensures((initial, p, c, n), observed)
-            && match observed.1 {
-                Err(error) => out.0 == observed.0 && out.1 == Err::<R, E>(error),
-                Ok(evidence) => validate.ensures((observed.0, evidence), out),
-            });
-    }
-    out
-}
-
-} // verus!
-
 // Explicit CI policy: fixed Git snapshots, registered old/new impact graph, candidate operations.
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::{
@@ -70,6 +13,8 @@ mod project_execution;
 mod project_pairs;
 #[cfg(not(verus_keep_ghost))]
 mod route_query;
+#[cfg(not(verus_keep_ghost))]
+mod source_observations;
 #[cfg(not(verus_keep_ghost))]
 use impact_query::{Edge, Query};
 #[cfg(not(verus_keep_ghost))]
@@ -910,7 +855,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
     sink: W,
 ) -> Response {
     let mut reader = Reader::legacy();
-    let mut opening = Value::Null;
+    let mut evidence = source_observations::GitEvidence::default();
     let mut scope = "chrono-ci-check/v1".to_owned();
     let mut diagnostic_errors = Vec::new();
     let mut project_errors = Vec::new();
@@ -920,7 +865,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
             return evaluate(
                 req,
                 &mut reader,
-                &mut opening,
+                &mut evidence,
                 &mut scope,
                 profile,
                 &mut project_errors,
@@ -953,7 +898,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
             let result = evaluate(
                 req,
                 &mut reader,
-                &mut opening,
+                &mut evidence,
                 &mut scope,
                 profile,
                 &mut project_errors,
@@ -989,10 +934,9 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
             }
         }
     };
-    if reader.is_bound() {
-        response.evidence["git_facts"] = reader.observation();
-    } else if !opening.is_null() {
-        response.evidence["git_facts"] = opening;
+    let facts = evidence.finish(reader.observation());
+    if !facts.is_null() {
+        response.evidence["git_facts"] = facts;
     }
     diagnostic_errors.extend(project_errors.into_iter().map(|message| {
         chrono_diagnostics::error::Failure::new("E_PROJECT_TRACE", message).record()
@@ -1116,65 +1060,28 @@ fn full_collection_at(
         collection["retired_tests"] = object!(impact.retired_tests);
         let selected = query.read("chrono-judge-routes", "collected-selection-v1", &collection)?;
         let routes = route_query::full_operations(&query, &r, &selected, None)?;
-        let previous_registry =
-            serde_json::from_value(old.filemap().clone()).map_err(|error| error.to_string());
-        let registry: chrono_harness::verified_verifier::sources::SourceRegistry =
-            serde_json::from_value(r.filemap().clone()).map_err(|error| error.to_string())?;
-        with_source_continuity(
-            (),
-            Some((
-                req.base.commit.as_str(),
-                old.filemap(),
-                old.projects(),
-                chrono_harness::facts::artifact_directories(old.config())?
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
-            )),
-            (
-                req.candidate.commit.as_str(),
-                r.filemap(),
-                r.projects(),
-                chrono_harness::facts::artifact_directories(r.config())?
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
-            ),
-            &chrono_harness::verified_verifier::sources::continuity_paths(
-                &registry.files,
-                &impact.reached.iter().cloned().collect(),
-            ),
-            |state, previous, candidate, paths| {
-                (
-                    state,
-                    chrono_harness::verified_verifier::sources::continuity::observe(
-                        &reader,
-                        &req.candidate.root,
-                        previous,
-                        candidate,
-                        paths,
-                    ),
-                )
-            },
-            |state, continuity| {
-                (
-                    state,
-                    chrono_judge_routes::validate_proof_plan(
-                        &registry,
-                        previous_registry.as_ref().map(Some).map_err(String::as_str),
-                        &impact.reached,
-                        &routes.methods,
-                        &routes.operations,
-                        &continuity,
-                    ),
-                )
-            },
-        )
-        .1?;
+        let mut evidence = source_observations::GitEvidence::default();
+        let facts = reader.observation();
+        route_query::source_plan(
+            &query,
+            "chrono-judge-routes",
+            profile,
+            Some(route_query::SourceEndpoint::registered(
+                &req.base.commit,
+                &old,
+            )?),
+            route_query::SourceEndpoint::registered(&req.candidate.commit, &r)?,
+            &impact.reached,
+            &routes.methods,
+            &routes.operations,
+            &facts,
+            &mut evidence,
+        )?;
+        let git_facts = evidence.finish(facts);
         let units = serde_json::from_value(r.config()["execution_units"]["units"].clone())
             .map_err(|e| e.to_string())?;
         Ok(
-            object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":reader.observation(),"filemap_git_facts":impact.git_facts}),
+            object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":git_facts,"filemap_git_facts":impact.git_facts}),
         )
     })();
     fs::remove_dir_all(&req.base.root).map_err(|e| e.to_string())?;
@@ -1221,59 +1128,23 @@ pub fn full_scheduling_requirements(
     let block = chrono_harness::units::full_execution_units(current.config())?
         .ok_or("full scheduling units missing")?;
     let routes = route_query::full_operations(&query, &current, &selected, Some(&block))?;
-    let previous_registry =
-        serde_json::from_value(old.filemap().clone()).map_err(|error| error.to_string());
-    let registry: chrono_harness::verified_verifier::sources::SourceRegistry =
-        serde_json::from_value(current.filemap().clone()).map_err(|error| error.to_string())?;
-    with_source_continuity(
-        (),
-        Some((
-            base,
-            old.filemap(),
-            old.projects(),
-            chrono_harness::facts::artifact_directories(old.config())?
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        )),
-        (
-            candidate,
-            current.filemap(),
-            current.projects(),
-            chrono_harness::facts::artifact_directories(current.config())?
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        ),
-        &chrono_harness::verified_verifier::sources::continuity_paths(
-            &registry.files,
-            &impact.reached.iter().cloned().collect(),
-        ),
-        |state, previous, candidate, paths| {
-            (
-                state,
-                chrono_harness::verified_verifier::sources::continuity::observe(
-                    &reader, root, previous, candidate, paths,
-                ),
-            )
-        },
-        |state, continuity| {
-            (
-                state,
-                chrono_judge_routes::validate_proof_plan(
-                    &registry,
-                    previous_registry.as_ref().map(Some).map_err(String::as_str),
-                    &impact.reached,
-                    &routes.methods,
-                    &routes.operations,
-                    &continuity,
-                ),
-            )
-        },
-    )
-    .1?;
+    let mut evidence = source_observations::GitEvidence::default();
+    let facts = reader.observation();
+    route_query::source_plan(
+        &query,
+        "chrono-judge-routes",
+        profile,
+        Some(route_query::SourceEndpoint::registered(base, &old)?),
+        route_query::SourceEndpoint::registered(candidate, &current)?,
+        &impact.reached,
+        &routes.methods,
+        &routes.operations,
+        &facts,
+        &mut evidence,
+    )?;
+    let git_facts = evidence.finish(facts);
     Ok(
-        object!({"required_units":routes.required_units,"global_selected":selected,"changed_paths":impact.changed_paths.ok_or("missing FILEMAP scheduling paths")?,"git_facts":reader.observation(),"filemap_git_facts":impact.git_facts,"input_scope":"git-and-declarations; final-effective-input-admission-required"}),
+        object!({"required_units":routes.required_units,"global_selected":selected,"changed_paths":impact.changed_paths.ok_or("missing FILEMAP scheduling paths")?,"git_facts":git_facts,"filemap_git_facts":impact.git_facts,"input_scope":"git-and-declarations; final-effective-input-admission-required"}),
     )
 }
 
@@ -1300,10 +1171,11 @@ pub fn scheduling_requirements(
         observations: object!({}),
     };
     let mut reader = Reader::legacy();
+    let mut evidence = source_observations::GitEvidence::default();
     let i = inventory(
         &req,
         &mut reader,
-        &mut Value::Null,
+        &mut evidence,
         &mut String::new(),
         false,
         false,
@@ -1313,7 +1185,7 @@ pub fn scheduling_requirements(
     }
     Ok(
         object!({"required_units":units::required(i.p.units.as_ref().ok_or("scheduling requires registered units")?, &i.global_selected),
-        "global_selected":i.global_selected,"changed_paths":i.paths,"selection_explanation":i.selection_explanation,"git_facts":reader.observation()}),
+        "global_selected":i.global_selected,"changed_paths":i.paths,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.observation())}),
     )
 }
 
@@ -1341,10 +1213,11 @@ pub fn collection_requirements(
         observations: object!({}),
     };
     let mut reader = Reader::legacy();
+    let mut evidence = source_observations::GitEvidence::default();
     let i = inventory(
         &req,
         &mut reader,
-        &mut Value::Null,
+        &mut evidence,
         &mut String::new(),
         false,
         true,
@@ -1360,7 +1233,7 @@ pub fn collection_requirements(
     );
     clean(&reader, root, &req.candidate, &i.p)?;
     Ok(
-        object!({"required_units":required,"global_selected":i.global_selected,"selection_explanation":i.selection_explanation,"git_facts":reader.observation()}),
+        object!({"required_units":required,"global_selected":i.global_selected,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.observation())}),
     )
 }
 
@@ -1403,7 +1276,7 @@ impl Profile {
 fn inventory(
     req: &Request,
     reader: &mut Reader,
-    opening: &mut Value,
+    evidence: &mut source_observations::GitEvidence,
     scope: &mut String,
     admit_entry: bool,
     verify_checkout: bool,
@@ -1411,7 +1284,7 @@ fn inventory(
     inventory_profile(
         req,
         reader,
-        opening,
+        evidence,
         scope,
         admit_entry,
         verify_checkout,
@@ -1422,7 +1295,7 @@ fn inventory(
 fn inventory_profile(
     req: &Request,
     reader: &mut Reader,
-    opening: &mut Value,
+    evidence: &mut source_observations::GitEvidence,
     scope: &mut String,
     admit_entry: bool,
     verify_checkout: bool,
@@ -1441,7 +1314,7 @@ fn inventory_profile(
     full_oid(&req.candidate)?;
     if let Some(path) = &p.facts_config {
         *reader = Reader::for_config_observed(root, path).map_err(|failure| {
-            *opening = failure.observation;
+            evidence.opening = failure.observation;
             failure.message
         })?;
         if !reader.is_bound() {
@@ -1572,7 +1445,7 @@ fn inventory_profile(
                     }
                 }
                 if admit_entry {
-                    chrono_judge_routes::validate_invocation(
+                    chrono_harness::resolve_invocation(
                         root,
                         &req.observations["entry"],
                         &argv,
@@ -1646,7 +1519,7 @@ fn inventory_profile(
             }
         }
         if admit_entry {
-            chrono_judge_routes::validate_invocation(
+            chrono_harness::resolve_invocation(
                 root,
                 &req.observations["entry"],
                 &template,
@@ -1784,64 +1657,31 @@ fn inventory_profile(
     let global_selected = selected.clone();
     if chrono_harness::verified_verifier::sources::can_validate_selected_plan(&blocked) {
         // Validate the complete obligation graph before selecting any unit.
+        let program = route_query::installed(root, &new.tools, "chrono-judge-routes")?;
         let operations = route_query::Graph {
             selected: &global_selected,
             plans: &new.plans,
             methods: &methods,
             execute: &new.execute,
         }
-        .scoped_order(root, &new, None)?
+        .ordered(root, &program, None)?
         .operations;
-        let registry = new.source_registry.as_ref().map_err(Clone::clone)?;
-        with_source_continuity(
-            (),
+        let query = Query::scoped(root, &p)?;
+        route_query::source_plan(
+            &query,
+            program.to_str().ok_or("non-UTF8 routes executable")?,
+            p.facts_config.as_deref().unwrap_or(&req.config_path),
             req.base
                 .as_deref()
                 .zip(old.as_ref())
-                .map(|(oid, snapshot)| {
-                    (
-                        oid,
-                        &snapshot.filemap,
-                        &snapshot.registry,
-                        snapshot.policy.artifacts.clone(),
-                    )
-                }),
-            (
-                req.candidate.as_str(),
-                &new.filemap,
-                &new.registry,
-                new.policy.artifacts.clone(),
-            ),
-            &chrono_harness::verified_verifier::sources::continuity_paths(
-                &registry.files,
-                &affected.iter().cloned().collect(),
-            ),
-            |state, previous, candidate, paths| {
-                (
-                    state,
-                    chrono_harness::verified_verifier::sources::continuity::observe(
-                        reader, root, previous, candidate, paths,
-                    ),
-                )
-            },
-            |state, continuity| {
-                (
-                    state,
-                    chrono_judge_routes::validate_proof_plan(
-                        registry,
-                        old.as_ref()
-                            .map(|snapshot| snapshot.source_registry.as_ref())
-                            .transpose()
-                            .map_err(String::as_str),
-                        &affected,
-                        &methods,
-                        &operations,
-                        &continuity,
-                    ),
-                )
-            },
-        )
-        .1?;
+                .map(|(oid, snapshot)| route_query::SourceEndpoint::scoped(oid, snapshot)),
+            route_query::SourceEndpoint::scoped(&req.candidate, &new),
+            &affected,
+            &methods,
+            &operations,
+            &reader.observation(),
+            evidence,
+        )?;
     }
     Ok(Inventory {
         config,
@@ -1932,7 +1772,7 @@ fn execute_plan(
 fn evaluate(
     req: &Request,
     reader: &mut Reader,
-    opening: &mut Value,
+    evidence: &mut source_observations::GitEvidence,
     scope: &mut String,
     profile: Profile,
     project_errors: &mut Vec<String>,
@@ -1960,7 +1800,7 @@ fn evaluate(
             event_id = "ci.phase_started",
             "validating inventory and selected inputs"
         );
-        inventory_profile(req, reader, opening, scope, true, true, profile)
+        inventory_profile(req, reader, evidence, scope, true, true, profile)
     })?;
     let root = &req.host_root;
     if let Some(chrono_harness::units::Scope::Collect { manifest }) = &req.scope {

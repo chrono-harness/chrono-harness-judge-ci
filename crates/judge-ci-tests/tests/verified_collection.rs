@@ -481,66 +481,6 @@ fn expect_continuity_bool(actual: bool)
 { if !actual { panic!(); } }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
-fn continuity_pipeline_preserves_both_endpoints_paths_and_observed_evidence() {
-    let (trace, result) = policy::with_source_continuity(
-        Vec::<u8>::new(), 11u8, 22u8, 33u8,
-        |mut state: Vec<u8>, previous: u8, candidate: u8, paths: u8| -> (out: (Vec<u8>, Result<(u8,u8,u8), String>))
-            ensures out.0@ == state@.push(1u8).push(previous).push(candidate).push(paths),
-                out.1 == Ok::<(u8,u8,u8), String>((previous,candidate,paths)),
-        {
-            state.push(1); state.push(previous); state.push(candidate); state.push(paths);
-            (state, Ok((previous,candidate,paths)))
-        },
-        |mut state: Vec<u8>, evidence: (u8,u8,u8)| -> (out: (Vec<u8>, Result<(u8,u8,u8), String>))
-            ensures out.0@ == state@.push(2u8).push(evidence.0).push(evidence.1).push(evidence.2),
-                out.1 == Ok::<(u8,u8,u8), String>(evidence),
-        {
-            state.push(2); state.push(evidence.0); state.push(evidence.1); state.push(evidence.2);
-            (state, Ok(evidence))
-        },
-    );
-    expect_continuity_bool(trace.len() == 8);
-    expect_continuity_bool(trace[0] == 1 && trace[1] == 11 && trace[2] == 22 && trace[3] == 33);
-    expect_continuity_bool(trace[4] == 2 && trace[5] == 11 && trace[6] == 22 && trace[7] == 33);
-    let exact = match result { Ok(value) => value.0 == 11 && value.1 == 22 && value.2 == 33, Err(_) => false };
-    expect_continuity_bool(exact);
-}
-
-#[cfg_attr(not(verus_keep_ghost), test)]
-fn continuity_observation_failure_keeps_the_first_error_and_skips_validation() {
-    let (trace, result) = policy::with_source_continuity(
-        Vec::<u8>::new(), (), (), (),
-        |mut state: Vec<u8>, _previous: (), _candidate: (), _paths: ()| -> (out: (Vec<u8>, Result<u8, String>))
-            ensures out.0@ == state@.push(1u8),
-                match out.1 { Err(error) => error@ == "原读取错误\0é"@, Ok(_) => false },
-        { state.push(1); (state, Err("原读取错误\0é".to_string())) },
-        |mut state: Vec<u8>, evidence: u8| -> (out: (Vec<u8>, Result<u8, String>))
-            ensures out.0@ == state@.push(9u8), out.1 == Ok::<u8,String>(evidence),
-        { state.push(9); (state, Ok(evidence)) },
-    );
-    expect_continuity_bool(trace.len() == 1 && trace[0] == 1);
-    let exact = match result { Err(error) => source_identifiers::equal_text(error.as_str(), "原读取错误\0é"), Ok(_) => false };
-    expect_continuity_bool(exact);
-}
-
-#[cfg_attr(not(verus_keep_ghost), test)]
-fn continuity_validation_failure_keeps_its_full_original_error() {
-    let (trace, result) = policy::with_source_continuity(
-        Vec::<u8>::new(), (), (), 7u8,
-        |mut state: Vec<u8>, _previous: (), _candidate: (), paths: u8| -> (out: (Vec<u8>, Result<u8, String>))
-            ensures out.0@ == state@.push(1u8), out.1 == Ok::<u8,String>(paths),
-        { state.push(1); (state, Ok(paths)) },
-        |mut state: Vec<u8>, evidence: u8| -> (out: (Vec<u8>, Result<u8, String>))
-            ensures out.0@ == state@.push(evidence),
-                match out.1 { Err(error) => error@ == "原判定错误\0é"@, Ok(_) => false },
-        { state.push(evidence); (state, Err("原判定错误\0é".to_string())) },
-    );
-    expect_continuity_bool(trace.len() == 2 && trace[0] == 1 && trace[1] == 7);
-    let exact = match result { Err(error) => source_identifiers::equal_text(error.as_str(), "原判定错误\0é"), Ok(_) => false };
-    expect_continuity_bool(exact);
-}
-
-#[cfg_attr(not(verus_keep_ghost), test)]
 fn combined_source_plan_keeps_base_errors_before_affected_file_errors() {
     let registry = source_verifier::sources::source_registry(vec![source_verifier::sources::SourceFile {
         path: "x".to_string(), verification: None,
