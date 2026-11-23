@@ -21,3 +21,5 @@
 其中 `report` 包含原发布路径 `path` 和 `sha256`。`transport` 的 `source_directory` 标识上传目录，`directory` 标识本次下载目录。原件读取沿用宿主的报告限制、摘要和准备记录校验。常规判官仍直接从 stdin 接收判定请求。
 
 scoped CI 遇到 schema 2 的项目登记时，通过 `chrono-judge-projects check-pairs-v1` 核对变更涉及的项目或脚本。宿主在工具登记中声明 `chrono-judge-projects` 时按其 `program` 启动，否则从 PATH 解析。调用使用当前配置登记的时间和输出上限。宿主从本仓 mise 配置所列的固定发行安装项目判官。
+
+scoped 调度使用本仓 mise 配置中的独立 FILEMAP 发行。宿主可在工具登记的 `chrono-judge-filemap.program` 指定安装位置，默认从 PATH 选择。完整调度和收集从 PATH 调用 FILEMAP 和 routes，FILEMAP 通过 mixed 分类变更。调度沿用已登记的 Git 环境。收集使用原请求和登记的历史转换原件。响应中的 `git_facts` 与 `filemap_git_facts` 分别记录 CI 和 FILEMAP 实际发生的 Git 调用。

@@ -85,7 +85,6 @@ version = "0.1.0"
 dependencies = [
  "chrono-diagnostics",
  "chrono-harness",
- "chrono-judge-filemap",
  "chrono-judge-projects",
  "chrono-judge-registration",
  "chrono-judge-routes",
@@ -100,6 +99,7 @@ version = "0.1.0"
 dependencies = [
  "chrono-harness",
  "chrono-judge-ci",
+ "serde",
  "serde_json",
 ]
 
