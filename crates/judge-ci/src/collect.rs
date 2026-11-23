@@ -196,7 +196,7 @@ pub(super) fn collect(
     methods: &BTreeMap<String, Vec<Method>>,
     declarations: &Value,
     environment_policy: &Value,
-) -> Result<Response, String> {
+) -> Result<Evaluation, String> {
     let _read_scope = chrono_harness::retained_artifacts::retention::read_scope(&req.host_root)?;
     let p = &snapshot.policy;
     let source_io = super::source_binding::CandidateIo {
@@ -364,7 +364,7 @@ pub(super) fn collect(
         if !candidates.contains(&producer.executable) || producer.argv != expected_argv {
             return Err("unit judge command differs from profile".into());
         }
-        if response.status != Status::Passed {
+        if response.status != chrono_harness::Status::Passed {
             results.push(CheckResult {
                 id: format!("ci.unit.{}", input.unit),
                 status: Status::Failed,
@@ -377,6 +377,7 @@ pub(super) fn collect(
             verified.push(object!({"unit":input.unit,"path":input.path,"sha256":input.sha256,"status":"failed-original-retained"}));
             continue;
         }
+        let unit_results: Vec<CheckResult> = response.results.into_iter().map(Into::into).collect();
         let owned = units::selection(units, selected, &input.unit)?;
         let e = &response.evidence;
         if e["scope"] != config.schema
@@ -527,7 +528,7 @@ pub(super) fn collect(
                 || receipt.process.exit_code != 0
                 || receipt.process.failure.is_some()
                 || !verified_collection::has_result(
-                    &response.results,
+                    &unit_results,
                     &operation.method.operation,
                     &Status::Passed,
                     Some(0),
@@ -537,9 +538,9 @@ pub(super) fn collect(
             }
         }
         // Successful replacement markers are not emitted by the scoped producer.
-        if !verified_collection::matches_result_states(&response.results, &not_required_ids)
+        if !verified_collection::matches_result_states(&unit_results, &not_required_ids)
             || !verified_collection::matches_report_result_ids(
-                &response.results,
+                &unit_results,
                 &expected_ids,
                 &not_required_ids,
             )
@@ -555,7 +556,7 @@ pub(super) fn collect(
             exit_code: None,
         });
     }
-    Ok(Response {
+    Ok(Evaluation {
         protocol: units::scope_protocol(req).into(),
         request_id: req.request_id.clone(),
         status: verified_collection::response_status(&results),
