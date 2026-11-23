@@ -30,3 +30,11 @@ path = "tests/project_pairs.rs"
 [[test]]
 name = "impact_query"
 path = "tests/impact_query.rs"
+
+[[test]]
+name = "consumption"
+path = "tests/consumption.rs"
+
+[[test]]
+name = "verified_consumption"
+path = "tests/verified_consumption.rs"
