@@ -133,6 +133,7 @@ struct Snapshot {
     filemap: Value,
     tools: BTreeMap<String, Value>,
     owner_nodes: BTreeMap<String, String>,
+    test_owners: BTreeMap<String, String>,
     files: BTreeMap<String, Value>,
     source_registry: Result<chrono_harness::verified_verifier::sources::SourceRegistry, String>,
     projects: BTreeMap<String, Value>,
@@ -287,8 +288,18 @@ fn policy(c: &CheckConfig) -> Result<Policy, String> {
     Ok(p)
 }
 #[cfg(not(verus_keep_ghost))]
-fn snapshot(reader: &Reader, root: &Path, oid: &str, mut p: Policy) -> Result<Snapshot, String> {
-    let fm = json(&at(reader, root, oid, &p.filemap)?)?;
+struct EndpointTools {
+    registration: Option<chrono_harness::facts::RegistrySnapshot>,
+    tools: BTreeMap<String, Value>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn endpoint_tools(
+    reader: &Reader,
+    root: &Path,
+    oid: &str,
+    p: &Policy,
+) -> Result<EndpointTools, String> {
     let registration = p
         .registration_config
         .as_ref()
@@ -316,6 +327,37 @@ fn snapshot(reader: &Reader, root: &Path, oid: &str, mut p: Policy) -> Result<Sn
             })
             .collect()
     };
+    Ok(EndpointTools {
+        registration,
+        tools,
+    })
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+struct TestBinding {
+    owner: String,
+    operation: String,
+}
+
+#[cfg(not(verus_keep_ghost))]
+type TestBindings = BTreeMap<String, Vec<TestBinding>>;
+
+#[cfg(not(verus_keep_ghost))]
+fn snapshot(
+    reader: &Reader,
+    root: &Path,
+    oid: &str,
+    mut p: Policy,
+    endpoint: EndpointTools,
+    bindings: &impl Fn(&Value) -> Result<TestBindings, String>,
+    adoption: bool,
+) -> Result<Snapshot, String> {
+    let fm = json(&at(reader, root, oid, &p.filemap)?)?;
+    let EndpointTools {
+        registration,
+        tools,
+    } = endpoint;
     let fm = chrono_judge_registration::select_filemap(
         &fm,
         registration
@@ -331,6 +373,27 @@ fn snapshot(reader: &Reader, root: &Path, oid: &str, mut p: Policy) -> Result<Sn
     // Legacy scoped v1 retains its original loose shape; v2 adopts the shared schema.
     if pr["schema_version"] == 2 {
         chrono_judge_registration::validate_projects(&pr)?;
+    }
+    let registered_tests = bindings(&pr)?;
+    if adoption {
+        let mut old_operations = BTreeSet::new();
+        for collection in ["projects", "scripts"] {
+            for entry in array(&pr, collection)? {
+                for action in entry["actions"]
+                    .as_object()
+                    .ok_or("actions missing")?
+                    .values()
+                {
+                    old_operations.insert(text(action, "operation")?);
+                }
+            }
+        }
+        p.bindings.retain(|test, operations| {
+            registered_tests.contains_key(test)
+                && operations
+                    .iter()
+                    .all(|op| old_operations.contains(op.as_str()))
+        });
     }
     let plans = if fm["schema_version"] == 2 {
         if !p.bindings.is_empty() {
@@ -358,13 +421,15 @@ fn snapshot(reader: &Reader, root: &Path, oid: &str, mut p: Policy) -> Result<Sn
             })
             .collect()
     };
-    let execute: BTreeMap<_, _> = chrono_judge_registration::execution::test_bindings(&pr)?
-        .into_iter()
-        .map(|(test, bindings)| match bindings.as_slice() {
-            [binding] => Ok((test, binding.operation.clone())),
-            _ => Err(format!("E_TEST_BINDING: duplicate test identity {test}")),
-        })
-        .collect::<Result<_, String>>()?;
+    let mut execute = BTreeMap::new();
+    let mut test_owners = BTreeMap::new();
+    for (test, bindings) in registered_tests {
+        let Ok([binding]) = <[_; 1]>::try_from(bindings) else {
+            return Err(format!("E_TEST_BINDING: duplicate test identity {test}"));
+        };
+        test_owners.insert(test.clone(), binding.owner);
+        execute.insert(test, binding.operation);
+    }
     let owners: BTreeSet<_> = strings(&pr["owners"])?.into_iter().collect();
     if owners.is_empty() {
         return Err("empty owner registry".into());
@@ -579,8 +644,7 @@ fn snapshot(reader: &Reader, root: &Path, oid: &str, mut p: Policy) -> Result<Sn
     for e in array(&fm, "project_edges")? {
         add(text(e, "from")?, e)?
     }
-    let artifacts = if let Some(config_path) = &p.registration_config {
-        let values = reader.registry_snapshot(root, oid, config_path)?;
+    let artifacts = if let Some(values) = &registration {
         values.values[&values.effective_path]["artifacts"].clone()
     } else {
         object!(
@@ -600,6 +664,7 @@ fn snapshot(reader: &Reader, root: &Path, oid: &str, mut p: Policy) -> Result<Sn
         filemap: fm.clone(),
         tools,
         owner_nodes,
+        test_owners,
         files,
         source_registry: serde_json::from_value(fm).map_err(|e| e.to_string()),
         projects,
@@ -853,13 +918,11 @@ fn ci_impact(
         affected.extend(new.owner_nodes.values().cloned());
     }
     // Direct plan/tool selections also carry their explicitly registered test owner.
-    for (test, bindings) in chrono_judge_registration::execution::test_bindings(&new.registry)
-        .expect("snapshot validated test bindings")
-    {
-        if selected.contains(&test) {
-            affected.extend(bindings.into_iter().map(|binding| binding.owner));
-        }
-    }
+    affected.extend(
+        selected
+            .iter()
+            .filter_map(|test| new.test_owners.get(test).cloned()),
+    );
     Ok((paths, selected, explanation, affected))
 }
 
@@ -1354,6 +1417,12 @@ fn inventory_profile(
     if verify_checkout {
         clean(reader, root, &req.candidate, &p)?;
     }
+    let candidate_tools = endpoint_tools(reader, root, &req.candidate, &p)?;
+    let program =
+        route_query::installed(root, &candidate_tools.tools, "chrono-judge-registration")?;
+    let program = program.to_str().ok_or("non-UTF8 registration executable")?;
+    let query = Query::scoped(root, &p)?;
+    let bindings = |registry: &Value| query.read(program, "test-bindings-v1", registry);
     let previous;
     let old = if req.initial {
         if req.base.is_some() {
@@ -1383,35 +1452,32 @@ fn inventory_profile(
             previous = "none".to_owned();
             // Adoption projects the explicitly supplied bindings onto the real base registry;
             // it never fabricates a base tree or executes historical operations.
-            let registry = json(&at(reader, root, base, &p.projects)?)?;
-            let names: BTreeSet<_> =
-                chrono_judge_registration::execution::test_bindings(&registry)?
-                    .into_keys()
-                    .collect();
-            let mut old_ops = BTreeSet::new();
-            for collection in ["projects", "scripts"] {
-                for entry in array(&registry, collection)? {
-                    for action in entry["actions"]
-                        .as_object()
-                        .ok_or("actions missing")?
-                        .values()
-                    {
-                        old_ops.insert(text(action, "operation")?.to_string());
-                    }
-                }
-            }
             let mut adopted = p.clone();
             adopted
                 .required_inputs
-                .retain(|v| base_tree.contains_key(v));
-            adopted
-                .bindings
-                .retain(|k, v| names.contains(k) && v.iter().all(|op| old_ops.contains(op)));
+                .retain(|path| base_tree.contains_key(path));
             adopted
         };
-        Some(snapshot(reader, root, base, op)?)
+        let base_tools = endpoint_tools(reader, root, base, &op)?;
+        Some(snapshot(
+            reader,
+            root,
+            base,
+            op,
+            base_tools,
+            &bindings,
+            !base_tree.contains_key(&req.config_path),
+        )?)
     };
-    let new = snapshot(reader, root, &req.candidate, p.clone())?;
+    let new = snapshot(
+        reader,
+        root,
+        &req.candidate,
+        p.clone(),
+        candidate_tools,
+        &bindings,
+        false,
+    )?;
     let (paths, mut selected, mut selection_explanation, affected) =
         ci_impact(root, old.as_ref(), &new)?;
     let consumption = chrono_judge_registration::consumption::check_scoped(
