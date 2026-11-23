@@ -85,12 +85,12 @@ version = "0.1.0"
 dependencies = [
  "chrono-diagnostics",
  "chrono-harness",
- "chrono-judge-projects",
  "chrono-judge-registration",
  "chrono-judge-routes",
  "serde",
  "serde_json",
  "tracing",
+ "tracing-tunnel",
 ]
 
 [[package]]
@@ -123,20 +123,6 @@ dependencies = [
  "chrono-harness",
  "chrono-judge-registration",
  "serde_json",
-]
-
-[[package]]
-name = "chrono-judge-projects"
-version = "0.1.0"
-source = "git+https://github.com/chrono-harness/chrono-harness-judge-projects.git?rev=01713b83aec1bef595770b28dc8a4c8f12f67e4b#01713b83aec1bef595770b28dc8a4c8f12f67e4b"
-dependencies = [
- "chrono-harness",
- "chrono-judge-filemap",
- "chrono-judge-registration",
- "chrono-judge-routes",
- "serde",
- "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -563,6 +549,17 @@ checksum = "2054a14f5307d601f88daf0553e1cbf472acc4f2c51afab632431cdcd72124d5"
 dependencies = [
  "sharded-slab",
  "thread_local",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-tunnel"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "507bbab1fc2c9e606543558f5656b62e8014ba7e0ffa68b9484511b6871019c5"
+dependencies = [
+ "once_cell",
+ "serde",
  "tracing-core",
 ]
 

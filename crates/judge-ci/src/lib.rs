@@ -65,6 +65,8 @@ use chrono_harness::{
 #[cfg(not(verus_keep_ghost))]
 mod impact_query;
 #[cfg(not(verus_keep_ghost))]
+mod project_execution;
+#[cfg(not(verus_keep_ghost))]
 mod project_pairs;
 #[cfg(not(verus_keep_ghost))]
 use impact_query::{Edge, Query};
@@ -909,10 +911,18 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
     let mut opening = Value::Null;
     let mut scope = "chrono-ci-check/v1".to_owned();
     let mut diagnostic_errors = Vec::new();
+    let mut project_errors = Vec::new();
     let result = Profile::load(req).and_then(|profile| {
         scope = profile.config.schema.clone();
         if profile.policy.execution_diagnostics.is_none() {
-            return evaluate(req, &mut reader, &mut opening, &mut scope, profile);
+            return evaluate(
+                req,
+                &mut reader,
+                &mut opening,
+                &mut scope,
+                profile,
+                &mut project_errors,
+            );
         }
         let logger = chrono_diagnostics::runtime::logger(
             &req.host_root,
@@ -938,7 +948,14 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
                 event_id = "ci.check_started",
                 "sealed request diagnostics adopted; input admission still required"
             );
-            let result = evaluate(req, &mut reader, &mut opening, &mut scope, profile);
+            let result = evaluate(
+                req,
+                &mut reader,
+                &mut opening,
+                &mut scope,
+                profile,
+                &mut project_errors,
+            );
             tracing::info!(
                 event_id = "ci.evaluation_returned",
                 has_response = result.is_ok(),
@@ -975,6 +992,9 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
     } else if !opening.is_null() {
         response.evidence["git_facts"] = opening;
     }
+    diagnostic_errors.extend(project_errors.into_iter().map(|message| {
+        chrono_diagnostics::error::Failure::new("E_PROJECT_TRACE", message).record()
+    }));
     if !diagnostic_errors.is_empty() {
         response.status = verified_collection::diagnostic_failure(&mut response.results);
         response.evidence["diagnostic_errors"] = object!(diagnostic_errors);
@@ -1882,7 +1902,10 @@ fn prepare_plan(
 fn execute_plan(
     req: &Request,
     plan: &chrono_judge_routes::Execution,
-) -> Result<chrono_judge_projects::Results, String> {
+    tools: &BTreeMap<String, Value>,
+    policy: &Policy,
+    errors: &mut Vec<String>,
+) -> Result<project_execution::Results, String> {
     let span = tracing::info_span!(
         "ci.execution",
         request_id = req.request_id,
@@ -1895,7 +1918,14 @@ fn execute_plan(
         event_id = "ci.phase_started",
         "executing registered operations"
     );
-    chrono_judge_projects::execute(plan)
+    project_execution::execute(
+        &req.host_root,
+        plan,
+        tools,
+        policy.operation_timeout_seconds,
+        policy.operation_output_limit_bytes,
+        errors,
+    )
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -1905,6 +1935,7 @@ fn evaluate(
     opening: &mut Value,
     scope: &mut String,
     profile: Profile,
+    project_errors: &mut Vec<String>,
 ) -> Result<Response, String> {
     let Inventory {
         config,
@@ -1997,7 +2028,7 @@ fn evaluate(
         })
     }
     if let Some(plan) = &plan {
-        let outcome = execute_plan(req, plan)?;
+        let outcome = execute_plan(req, plan, &new.tools, &p, project_errors)?;
         operation_state = outcome.operation_state.clone();
         let source_io = source_binding::CandidateIo {
             reader,
