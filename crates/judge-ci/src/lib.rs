@@ -63,9 +63,11 @@ use chrono_harness::{
     sha256,
 };
 #[cfg(not(verus_keep_ghost))]
+mod impact_query;
+#[cfg(not(verus_keep_ghost))]
 mod project_pairs;
 #[cfg(not(verus_keep_ghost))]
-use chrono_judge_filemap::graph::{self, Edge, EdgeKind, Seed};
+use impact_query::{Edge, Query};
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(verus_keep_ghost))]
@@ -588,7 +590,7 @@ fn snapshot(reader: &Reader, root: &Path, oid: &str, mut p: Policy) -> Result<Sn
         }
         if !edges.insert(Edge {
             from: from.into(),
-            kind: serde_json::from_value(Value::String(kind.into())).map_err(|e| e.to_string())?,
+            kind: kind.into(),
             to: to.into(),
         }) {
             return Err(format!("duplicate edge {from} -> {to}"));
@@ -675,9 +677,10 @@ fn changed<T: PartialEq>(a: &BTreeMap<String, T>, b: &BTreeMap<String, T>) -> BT
 // Scoped CI owns legacy seeds and selections; it consumes only shared union/closure mechanics.
 #[cfg(not(verus_keep_ghost))]
 fn ci_impact(
+    root: &Path,
     old: Option<&Snapshot>,
     new: &Snapshot,
-) -> (BTreeSet<String>, BTreeSet<String>, Value, BTreeSet<String>) {
+) -> Result<(BTreeSet<String>, BTreeSet<String>, Value, BTreeSet<String>), String> {
     let paths = if let Some(old) = old {
         changed(&old.tree, &new.tree)
     } else {
@@ -729,7 +732,7 @@ fn ci_impact(
         }
         for e in old.edges.symmetric_difference(&new.edges) {
             seeds.insert(e.from.clone());
-            if e.kind != EdgeKind::TestExecution {
+            if e.kind != "test-execution" {
                 seeds.insert(e.to.clone());
             }
         }
@@ -838,39 +841,40 @@ fn ci_impact(
         }
     }
     let empty = BTreeSet::new();
-    let edges = graph::union(old.map(|s| &s.edges).unwrap_or(&empty), &new.edges);
-    let seeds: Vec<_> = seeds
-        .into_iter()
-        .map(|node| Seed {
-            id: node.clone(),
-            reference: node.clone(),
-            node,
-            reason: "scoped CI path, registration or operation seed".into(),
-        })
-        .collect();
-    let closure = graph::closure(&edges, &seeds);
-    let mut selected = closure.selected_tests();
-    selected.extend(extras.keys().cloned());
-    // Every outgoing edge of a reached node contributes to replay, including
-    // alternate paths and cycles. Unreachable sources contribute no causes.
-    // Keep endpoint origins while omitting unrelated graph declarations.
+    let before = old.map(|s| &s.edges).unwrap_or(&empty);
+    let seeds: Vec<_> = seeds.into_iter().map(|node| object!({"id":node,"node":node,"reference":node,"reason":"scoped CI path, registration or operation seed"})).collect();
     let replay = new.policy.selection_evidence.as_deref() == Some("reachable-graph/v1");
-    let evidence_edges: Vec<_> = edges
-        .iter()
-        .filter(|edge| !replay || closure.reached.contains_key(&edge.edge.from))
-        .collect();
+    let program = new
+        .tools
+        .get("chrono-judge-filemap")
+        .map(|tool| {
+            tool["program"]
+                .as_str()
+                .filter(|path| !path.is_empty())
+                .ok_or("invalid registered chrono-judge-filemap program")
+        })
+        .transpose()?
+        .unwrap_or("chrono-judge-filemap");
+    let query = Query::scoped(root, &new.policy)?;
+    let closure: impact_query::Reachability = query.read(
+        program,
+        "closure-v1",
+        &object!({
+            "base":before,"candidate":new.edges,"seeds":seeds,"reachable_only":replay
+        }),
+    )?;
     let closure_evidence = if replay {
-        object!({"schema":"chrono-ci-reachability/v1",
-            "reached":closure.reached.keys().collect::<Vec<_>>(),
-            "selected_tests":closure.selected_tests()})
+        object!({"schema":"chrono-ci-reachability/v1","reached":closure.reached,"selected_tests":closure.selected_tests})
     } else {
-        object!(&closure)
+        closure.closure.ok_or("missing full graph closure")?
     };
-    let mut explanation = object!({"scope":"chrono-ci-check/v1-adapter", "edges":evidence_edges, "seed_causes":seeds, "closure":closure_evidence, "extra_selections":extras});
+    let mut selected = closure.selected_tests;
+    selected.extend(extras.keys().cloned());
+    let mut explanation = object!({"scope":"chrono-ci-check/v1-adapter","edges":closure.edges,"seed_causes":seeds,"closure":closure_evidence,"extra_selections":extras});
     if replay {
         explanation["representation"] = object!("reachable-graph/v1");
     }
-    let mut affected: BTreeSet<String> = closure.reached.keys().cloned().collect();
+    let mut affected = closure.reached;
     if old.is_none() {
         affected.extend(new.owner_nodes.values().cloned());
     }
@@ -882,7 +886,7 @@ fn ci_impact(
             affected.extend(bindings.into_iter().map(|binding| binding.owner));
         }
     }
-    (paths, selected, explanation, affected)
+    Ok((paths, selected, explanation, affected))
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -1066,23 +1070,23 @@ fn full_collection_at(
         }
         req.runner.path = runner.to_str().ok_or("runner path UTF8")?.into();
         req.runner.sha256 = digest;
+        req.seal()?;
+        // Only the original producer may satisfy registration's requested migration units.
+        let migration = std::cell::RefCell::new(None);
         let (old, r, _) =
-            chrono_judge_registration::views_for_collection_inputs_with(&req, &reader, originals)?;
-        let inputs = chrono_judge_registration::inputs::validate(&req, &old, &r)?;
-        let (impact, findings) =
-            chrono_judge_filemap::produce_for_request(&req, &old, &r, &reader, &inputs)?;
-        if findings.iter().any(|f| f.level == "error") {
-            return Err(format!(
-                "blocked full obligations: {}",
-                serde_json::to_string(&findings).map_err(|e| e.to_string())?
-            ));
-        }
-        let selected = chrono_judge_routes::global_selection(
-            &old,
-            &r,
-            &impact,
-            chrono_judge_registration::downstream_validator(&r, "routes"),
-        )?;
+            chrono_judge_registration::views_for_collection_inputs_with(&req, &reader, &|units| {
+                let reports = originals(units)?;
+                migration.replace(Some(object!({"units":units,"originals":reports})));
+                Ok(reports)
+            })?;
+        let query = Query::full(root, r.config())?;
+        let mut collection = object!({"request":req,"migration":migration.into_inner()});
+        let impact: impact_query::Obligations =
+            query.read("chrono-judge-filemap", "collection-tests-v1", &collection)?;
+        impact.require_valid("blocked full obligations")?;
+        collection["tests"] = object!(impact.tests);
+        collection["retired_tests"] = object!(impact.retired_tests);
+        let selected = query.read("chrono-judge-routes", "collected-selection-v1", &collection)?;
         let methods = chrono_judge_registration::execution::methods(r.projects())?;
         let (_, operations) = chrono_judge_routes::order(
             &selected,
@@ -1116,7 +1120,7 @@ fn full_collection_at(
             ),
             &chrono_harness::verified_verifier::sources::continuity_paths(
                 &registry.files,
-                &impact.closure.reached.keys().cloned().collect(),
+                &impact.reached.iter().cloned().collect(),
             ),
             |state, previous, candidate, paths| {
                 (
@@ -1136,7 +1140,7 @@ fn full_collection_at(
                     chrono_judge_routes::validate_proof_plan(
                         &registry,
                         previous_registry.as_ref().map(Some).map_err(String::as_str),
-                        &impact.closure.reached.keys().cloned().collect(),
+                        &impact.reached,
                         &methods,
                         &operations,
                         &continuity,
@@ -1148,7 +1152,7 @@ fn full_collection_at(
         let units = serde_json::from_value(r.config()["execution_units"]["units"].clone())
             .map_err(|e| e.to_string())?;
         Ok(
-            object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":reader.observation()}),
+            object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":reader.observation(),"filemap_git_facts":impact.git_facts}),
         )
     })();
     fs::remove_dir_all(&req.base.root).map_err(|e| e.to_string())?;
@@ -1168,7 +1172,7 @@ pub fn full_scheduling_requirements(
     reader.verify_config(root, candidate)?;
     reader.verify_oid(root, base)?;
     reader.verify_oid(root, candidate)?;
-    let (old, current, _) = chrono_judge_registration::interpret_scheduling_with_reader(
+    let (old, current, view) = chrono_judge_registration::interpret_scheduling_with_reader(
         &reader,
         root,
         base,
@@ -1180,23 +1184,18 @@ pub fn full_scheduling_requirements(
     .map_err(|e| {
         format!("full scheduling requires directly readable historical registries: {e}")
     })?;
-    let delta =
-        chrono_harness::facts::delta(&reader.tree(root, base)?, &reader.tree(root, candidate)?);
-    let (impact, findings) = chrono_judge_filemap::produce_for_endpoints(
-        root, base, candidate, &delta, &old, &current, &reader,
-    )?;
-    if findings.iter().any(|f| f.level == "error") {
-        return Err(format!(
-            "blocked full scheduling obligations: {}",
-            serde_json::to_string(&findings).map_err(|e| e.to_string())?
-        ));
-    }
-    let selected = chrono_judge_routes::global_selection(
-        &old,
-        &current,
-        &impact,
-        chrono_judge_registration::downstream_validator(&current, "routes"),
-    )?;
+    let query = Query::full(root, current.config())?;
+    let impact: impact_query::Obligations = Query::full(root, current.config())?
+        .with_git_environment(&reader.observation())?
+        .read(
+            "chrono-judge-filemap",
+            "endpoint-tests",
+            &object!({"config":profile,"base":base,"candidate":candidate,"scheduling":true}),
+        )?;
+    impact.require_valid("blocked full scheduling obligations")?;
+    let selected = query.read("chrono-judge-routes", "global-selection", &object!({
+        "config":profile,"base":view["base"],"candidate":view["candidate"],"tests":impact.tests,"retired_tests":impact.retired_tests
+    }))?;
     let plans = chrono_judge_registration::execution::plans(current.filemap())?;
     let block = chrono_harness::units::full_execution_units(current.config())?
         .ok_or("full scheduling units missing")?;
@@ -1234,7 +1233,7 @@ pub fn full_scheduling_requirements(
         ),
         &chrono_harness::verified_verifier::sources::continuity_paths(
             &registry.files,
-            &impact.closure.reached.keys().cloned().collect(),
+            &impact.reached.iter().cloned().collect(),
         ),
         |state, previous, candidate, paths| {
             (
@@ -1250,7 +1249,7 @@ pub fn full_scheduling_requirements(
                 chrono_judge_routes::validate_proof_plan(
                     &registry,
                     previous_registry.as_ref().map(Some).map_err(String::as_str),
-                    &impact.closure.reached.keys().cloned().collect(),
+                    &impact.reached,
                     &methods,
                     &operations,
                     &continuity,
@@ -1260,7 +1259,7 @@ pub fn full_scheduling_requirements(
     )
     .1?;
     Ok(
-        object!({"required_units":chrono_harness::units::required(&units, &selected),"global_selected":selected,"changed_paths":delta.iter().map(|d| &d.path).collect::<Vec<_>>(),"git_facts":reader.observation(),"input_scope":"git-and-declarations; final-effective-input-admission-required"}),
+        object!({"required_units":chrono_harness::units::required(&units, &selected),"global_selected":selected,"changed_paths":impact.changed_paths.ok_or("missing FILEMAP scheduling paths")?,"git_facts":reader.observation(),"filemap_git_facts":impact.git_facts,"input_scope":"git-and-declarations; final-effective-input-admission-required"}),
     )
 }
 
@@ -1501,7 +1500,8 @@ fn inventory_profile(
         Some(snapshot(reader, root, base, op)?)
     };
     let new = snapshot(reader, root, &req.candidate, p.clone())?;
-    let (paths, mut selected, mut selection_explanation, affected) = ci_impact(old.as_ref(), &new);
+    let (paths, mut selected, mut selection_explanation, affected) =
+        ci_impact(root, old.as_ref(), &new)?;
     let consumption = chrono_judge_registration::consumption::check_scoped(
         reader,
         root,
@@ -1524,10 +1524,7 @@ fn inventory_profile(
             std::env::var("PATH").map_err(|error| error.to_string())?,
             p.operation_timeout_seconds,
             p.operation_output_limit_bytes,
-            |command, input| {
-                let result = chrono_harness::run_process(root, command, input)?;
-                Ok((result.exit_code, result.stdout_bytes, result.stderr_bytes))
-            },
+            |command, input| impact_query::run_bound(root, command.clone(), input),
         )?;
     }
     let mut blocked = vec![];
