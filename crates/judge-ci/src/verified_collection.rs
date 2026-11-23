@@ -40,6 +40,13 @@ pub use source_registration::validate_reference_syntax;
 
 verus! {
 
+/// A plan with missing inputs stays blocked before any route query.
+pub fn can_validate_selected_plan(blocked: &[String]) -> (ready: bool)
+    ensures ready == (blocked.len() == 0),
+{
+    blocked.is_empty()
+}
+
 /// Registered hosts admit action references only from their full configuration.
 pub open spec fn authoritative_tool_present(
     registered: bool, registration_contains: bool, profile_contains: bool,

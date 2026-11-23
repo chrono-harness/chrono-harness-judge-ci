@@ -487,6 +487,14 @@ fn expect_continuity_bool(actual: bool)
 { if !actual { panic!(); } }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn routing_requires_all_blockers_to_be_cleared() {
+    let none = Vec::<String>::new();
+    let blocked = vec!["missing required input".to_string()];
+    expect_continuity_bool(policy::can_validate_selected_plan(&none));
+    expect_continuity_bool(!policy::can_validate_selected_plan(&blocked));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn combined_source_plan_keeps_base_errors_before_affected_file_errors() {
     let registry = source_verifier::sources::source_registry(vec![source_verifier::sources::SourceFile {
         path: "x".to_string(), verification: None,

@@ -1657,7 +1657,7 @@ fn inventory_profile(
         })
         .collect();
     let global_selected = selected.clone();
-    if chrono_harness::verified_verifier::sources::can_validate_selected_plan(&blocked) {
+    if verified_collection::can_validate_selected_plan(&blocked) {
         // Validate the complete obligation graph before selecting any unit.
         let program = route_query::installed(root, &new.tools, "chrono-judge-routes")?;
         let operations = route_query::Graph {
