@@ -14,12 +14,12 @@ pub(crate) struct Reply {
 #[derive(Default)]
 pub(crate) struct GitEvidence {
     pub opening: Value,
-    routes: Option<(usize, Vec<Value>)>,
+    external: Vec<(usize, Vec<Value>)>,
 }
 
 impl GitEvidence {
     pub fn finish(self, mut facts: Value) -> Value {
-        if let Some((at, rows)) = self.routes {
+        for (at, rows) in self.external.into_iter().rev() {
             // One append-only caller reader is used from inventory to publication.
             facts["processes"]
                 .as_array_mut()
@@ -42,20 +42,57 @@ impl GitEvidence {
         }
         let error: Option<String> =
             serde_json::from_value(reply.error).map_err(|error| error.to_string())?;
-        let mut extra = reply.git_facts;
+        self.record(binding, offset, reply.git_facts)?;
+        error.map_or(Ok(()), Err)
+    }
+
+    pub fn record(
+        &mut self,
+        binding: &Value,
+        offset: Option<usize>,
+        mut extra: Value,
+    ) -> Result<(), String> {
         if !extra.is_null() {
             let more = extra
                 .as_object_mut()
                 .and_then(|binding| binding.remove("processes"));
             let Some(Value::Array(more)) = more else {
-                return Err("E_GIT_FACTS: missing routes processes".into());
+                return Err("E_GIT_FACTS: missing external Git processes".into());
             };
             if &extra != binding {
-                return Err("E_GIT_FACTS: routes observed a different Git binding".into());
+                return Err(
+                    "E_GIT_FACTS: external command observed a different Git binding".into(),
+                );
             }
-            let offset = offset.ok_or("E_GIT_FACTS: unexpected bound routes reader")?;
-            self.routes = Some((offset, more));
+            let offset = offset.ok_or("E_GIT_FACTS: unexpected bound external Git reader")?;
+            self.external.push((offset, more));
         }
-        error.map_or(Ok(()), Err)
+        Ok(())
     }
+}
+
+pub(crate) fn binding(facts: &Value) -> Result<(Value, Option<usize>), String> {
+    let binding = facts
+        .as_object()
+        .map(|fields| {
+            Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| *key != "processes")
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            )
+        })
+        .unwrap_or(Value::Null);
+    let offset = if binding.is_null() {
+        None
+    } else {
+        Some(
+            facts["processes"]
+                .as_array()
+                .ok_or("E_GIT_FACTS: missing caller processes")?
+                .len(),
+        )
+    };
+    Ok((binding, offset))
 }

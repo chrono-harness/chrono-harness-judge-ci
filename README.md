@@ -43,3 +43,5 @@ scoped CI 用候选宿主的 chrono-judge-registration 执行 `scoped-execution-
 启用 v4 登记的 scoped 宿主安装支持 `check-documents-v1` 的 chrono-judge-registration。CI 在首次检查和两个提交的比较中把固定候选文档交给已登记的安装程序，核对它返回的有效配置路径，再验入口绑定。
 
 采用 `execution_diagnostics: "chrono-log-stderr/v1"` 的宿主需安装支持 `trace-events-v1` 的 chrono-diagnostics。可以在同一份已绑定的 policy.tools 中指定其路径，默认从 PATH 解析。显式日志流、宿主滚动文件和业务回执可同时使用。日志写入失败会作为独立检查结果保留，业务操作的退出码及原始回执仍可读取。
+
+在 scoped 配置声明 `policy.registration_config` 的 DELTA 检查中，CI 从宿主选中的 `chrono-judge-registration` 调用 `ci-transition-v1`。该命令自登记工具 `v0.1.0-alpha.20` 提供。CI 核对提交身份与所选退役测试，保留历史转换和原成本，并把额外的 Git 进程按调用顺序写入现有报告。
