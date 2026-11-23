@@ -1418,6 +1418,34 @@ fn check_registration_documents(
 }
 
 #[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScopedTransition {
+    previous: String,
+    candidate: String,
+    git_facts: Value,
+    result: Result<TransitionData, String>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransitionData {
+    tools: Value,
+    reused: BTreeMap<String, chrono_harness::observation::Tool>,
+    conversion: Value,
+    retirements: BTreeMap<String, TestRetirement>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TestRetirement {
+    replacement: Option<String>,
+    context: Value,
+}
+
+#[cfg(not(verus_keep_ghost))]
 fn inventory_profile(
     req: &Request,
     reader: &mut Reader,
@@ -1704,69 +1732,41 @@ fn inventory_profile(
         for (key, value) in &p.environment {
             environment_policy["values"][key] = object!(value);
         }
-        let (old_registration, r, view) = if !verify_checkout {
-            chrono_judge_registration::interpret_scheduling_with_reader(
-                reader,
-                root,
-                base,
-                &req.candidate,
-                config_path,
-                a,
-                b,
-            )?
-        } else if reader.is_bound() {
-            chrono_judge_registration::interpret_with_reader(
-                reader,
-                root,
-                base,
-                &req.candidate,
-                config_path,
-                a,
-                b,
-                &environment,
-            )?
+        let retired: BTreeSet<_> = selected
+            .iter()
+            .filter(|test| !new.plans.contains_key(*test))
+            .cloned()
+            .collect();
+        // The caller already owns this binding and its process history.
+        reader.verify_config(root, &req.candidate)?;
+        let facts = reader.observation();
+        let (binding, offset) = source_observations::binding(&facts)?;
+        let git = offset.map(|_| object!({"config":p.facts_config,"git_facts":binding}));
+        let mode = if verify_checkout {
+            object!({"execute":{"environment":environment}})
         } else {
-            chrono_judge_registration::interpret(
-                root,
-                base,
-                &req.candidate,
-                config_path,
-                a,
-                b,
-                &environment,
-            )?
+            object!("schedule")
         };
-        declarations = r.config()["tools"].clone();
-        reused = chrono_judge_registration::reused_tools(&view)?;
-        conversion = view["conversion"].clone();
-        for test in selected.clone() {
-            if new.plans.contains_key(&test) {
-                continue;
-            }
-            let replacement =
-                chrono_judge_registration::validate_test_retirement(&old_registration, &r, &test)?;
-            let cost_rows: Vec<_> = old_registration.filemap()["test_costs"]
-                .as_array()
-                .ok_or("E_RETIREMENT: old test costs missing")?
-                .iter()
-                .filter(|row| row["test"].as_str() == test.strip_prefix("test:"))
-                .collect();
-            if cost_rows.len() != 1 {
-                return Err(format!(
-                    "E_RETIREMENT: old test cost missing/ambiguous: {test}"
-                ));
-            }
-            let cost = cost_rows[0]["cost"]
-                .as_str()
-                .ok_or("old cost reference missing")?;
-            let model = old_registration.filemap()["cost_models"]
-                .get(cost)
-                .ok_or("E_RETIREMENT: old cost model missing")?;
-            retirement_context[&test] = object!({
-                "definitions":old_registration.node_data()[&test].definitions.iter()
-                    .map(|d| object!({"identity":d.identity,"value":d.value})).collect::<Vec<_>>(),
-                "cost":{"reference":cost,"value":model}
-            });
+        let transition: ScopedTransition = query.read(
+            program,
+            "ci-transition-v1",
+            &object!({"config":config_path,"base":base,"candidate":req.candidate,
+                "documents":[a,b],"mode":mode,"git":git,"retired":retired}),
+        )?;
+        if transition.previous != *base || transition.candidate != req.candidate {
+            return Err("E_PLAN_BINDING: registration returned different CI endpoints".into());
+        }
+        evidence.record(&binding, offset, transition.git_facts)?;
+        let data = transition.result?;
+        if !data.retirements.keys().eq(retired.iter()) {
+            return Err("E_PLAN_BINDING: registration returned different retired tests".into());
+        }
+        declarations = data.tools;
+        reused = data.reused;
+        conversion = data.conversion;
+        for (test, retirement) in data.retirements {
+            let replacement = retirement.replacement;
+            retirement_context[&test] = retirement.context;
             removed.insert(test.clone(), replacement.clone());
             selected.remove(&test);
             if let Some(replacement) = replacement {

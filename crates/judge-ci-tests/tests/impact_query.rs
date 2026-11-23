@@ -77,3 +77,28 @@ fn source_rejection_retains_git_processes_between_the_two_caller_reads() {
         assert_eq!(evidence.finish(facts.clone()), facts);
     }
 }
+
+#[test]
+fn separate_queries_at_the_same_position_keep_their_original_process_order() {
+    let facts = json!({"config_sha256":"fixed","processes":["before"]});
+    let (binding, offset) = source_observations::binding(&facts).unwrap();
+    let mut evidence = source_observations::GitEvidence::default();
+    for program in ["registration", "routes"] {
+        evidence
+            .record(
+                &binding,
+                offset,
+                json!({"config_sha256":"fixed","processes":[program]}),
+            )
+            .unwrap();
+    }
+    assert!(
+        evidence
+            .record(&binding, offset, json!({"config_sha256":"fixed"}))
+            .is_err()
+    );
+    assert_eq!(
+        evidence.finish(facts)["processes"],
+        json!(["before", "registration", "routes"])
+    );
+}

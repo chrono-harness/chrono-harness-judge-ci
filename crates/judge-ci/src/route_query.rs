@@ -308,28 +308,7 @@ pub(super) fn source_plan(
     facts: &Value,
     evidence: &mut crate::source_observations::GitEvidence,
 ) -> Result<(), String> {
-    let binding = facts
-        .as_object()
-        .map(|fields| {
-            Value::Object(
-                fields
-                    .iter()
-                    .filter(|(key, _)| *key != "processes")
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect(),
-            )
-        })
-        .unwrap_or(Value::Null);
-    let offset = if binding.is_null() {
-        None
-    } else {
-        Some(
-            facts["processes"]
-                .as_array()
-                .ok_or("E_GIT_FACTS: missing caller processes")?
-                .len(),
-        )
-    };
+    let (binding, offset) = crate::source_observations::binding(facts)?;
     let git = offset.map(|_| json!({"config":config, "git_facts":binding}));
     let reply = query.read(
         program,
