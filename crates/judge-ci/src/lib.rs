@@ -370,10 +370,6 @@ fn snapshot(
     {
         return Err("unsupported registry version".into());
     }
-    // Legacy scoped v1 retains its original loose shape; v2 adopts the shared schema.
-    if pr["schema_version"] == 2 {
-        chrono_judge_registration::validate_projects(&pr)?;
-    }
     let registered_tests = bindings(&pr)?;
     if adoption {
         let mut old_operations = BTreeSet::new();
@@ -1422,7 +1418,7 @@ fn inventory_profile(
         route_query::installed(root, &candidate_tools.tools, "chrono-judge-registration")?;
     let program = program.to_str().ok_or("non-UTF8 registration executable")?;
     let query = Query::scoped(root, &p)?;
-    let bindings = |registry: &Value| query.read(program, "test-bindings-v1", registry);
+    let bindings = |registry: &Value| query.read(program, "scoped-test-bindings-v1", registry);
     let previous;
     let old = if req.initial {
         if req.base.is_some() {
