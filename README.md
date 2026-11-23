@@ -36,4 +36,4 @@ scoped 计划从已安装的 routes 查询。调度和回放使用 `scoped-opera
 
 scoped CI 把原请求的绑定字段及报告路径交给 routes 生成计划，收集时用 `check-scoped-plan-v1` 校验原件。生产 Cargo 清单仅按 JSON 协议消费 routes。源码库存与所选根的组合验证由 runner 和 routes 分别维护。
 
-scoped CI 用候选宿主的 chrono-judge-registration 执行 `test-bindings-v1`，从变更两端各自的项目登记读取测试的终止操作和所有者。宿主可在工具登记中指定该命令的位置，省略时按 PATH 解析。退役与替换判断沿用两端各自的绑定。
+scoped CI 用候选宿主的 chrono-judge-registration 执行 `scoped-test-bindings-v1`，由登记判官在同一次调用中校验 v2 项目登记并返回测试的终止操作和所有者。基线和候选使用各自的登记，历史 v1 项目登记沿用其原有绑定规则。宿主可在工具登记中指定该命令的位置，省略时按 PATH 解析。退役与替换判断沿用两端各自的绑定。
