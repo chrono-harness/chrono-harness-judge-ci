@@ -25,3 +25,5 @@ scoped CI 遇到 schema 2 的项目登记时，通过 `chrono-judge-projects che
 scoped 调度使用本仓 mise 配置中的独立 FILEMAP 发行。宿主可在工具登记的 `chrono-judge-filemap.program` 指定安装位置，默认从 PATH 选择。完整调度和收集从 PATH 调用 FILEMAP 和 routes，FILEMAP 通过 mixed 分类变更。调度沿用已登记的 Git 环境。收集使用原请求和登记的历史转换原件。响应中的 `git_facts` 与 `filemap_git_facts` 分别记录 CI 和 FILEMAP 实际发生的 Git 调用。
 
 scoped CI 执行已选操作时使用宿主安装的 `chrono-judge-projects execute-plan-v1` 和 `chrono-judge-routes`。可在宿主的 tools 登记这两个程序的路径，未登记时按 PATH 查找。CI 从 projects 接收每个操作的回执和原始流，在本仓核对计划和操作集合，并把实时诊断写入宿主选择的日志。业务失败和诊断写入失败分别进入检查结果。
+
+scoped 计划从已安装的 routes 查询。调度和回放使用 `scoped-operations-v1` 展开已选操作，准备执行时使用 `prepare-scoped-plan-v1` 观察登记的工具并生成计划。CI 核对返回的宿主根、绑定、所选测试与调度参数，再交给 projects 执行。本仓 mise 配置固定了支持这两个命令的 routes 发行和各平台摘要。

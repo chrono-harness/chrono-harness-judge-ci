@@ -69,6 +69,8 @@ mod project_execution;
 #[cfg(not(verus_keep_ghost))]
 mod project_pairs;
 #[cfg(not(verus_keep_ghost))]
+mod route_query;
+#[cfg(not(verus_keep_ghost))]
 use impact_query::{Edge, Query};
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
@@ -1108,12 +1110,18 @@ fn full_collection_at(
         collection["retired_tests"] = object!(impact.retired_tests);
         let selected = query.read("chrono-judge-routes", "collected-selection-v1", &collection)?;
         let methods = chrono_judge_registration::execution::methods(r.projects())?;
-        let (_, operations) = chrono_judge_routes::order(
-            &selected,
-            &chrono_judge_registration::execution::plans(r.filemap())?,
-            &methods,
-            &chrono_judge_routes::execute_actions(&r),
-        )?;
+        let operations = route_query::Graph {
+            selected: &selected,
+            plans: &chrono_judge_registration::execution::plans(r.filemap())?,
+            methods: &methods,
+            execute: &chrono_judge_routes::execute_actions(&r),
+        }
+        .ordered(
+            root,
+            &chrono_harness::resolve_program(root, "chrono-judge-routes", None)?,
+            None,
+        )?
+        .operations;
         let previous_registry =
             serde_json::from_value(old.filemap().clone()).map_err(|error| error.to_string());
         let registry: chrono_harness::verified_verifier::sources::SourceRegistry =
@@ -1221,12 +1229,18 @@ pub fn full_scheduling_requirements(
         .ok_or("full scheduling units missing")?;
     let units = chrono_judge_routes::validate_unit_assignments(&block, &plans)?;
     let methods = chrono_judge_registration::execution::methods(current.projects())?;
-    let (_, operations) = chrono_judge_routes::order(
-        &selected,
-        &plans,
-        &methods,
-        &chrono_judge_routes::execute_actions(&current),
-    )?;
+    let operations = route_query::Graph {
+        selected: &selected,
+        plans: &plans,
+        methods: &methods,
+        execute: &chrono_judge_routes::execute_actions(&current),
+    }
+    .ordered(
+        root,
+        &chrono_harness::resolve_program(root, "chrono-judge-routes", None)?,
+        None,
+    )?
+    .operations;
     let previous_registry =
         serde_json::from_value(old.filemap().clone()).map_err(|error| error.to_string());
     let registry: chrono_harness::verified_verifier::sources::SourceRegistry =
@@ -1790,8 +1804,14 @@ fn inventory_profile(
     let global_selected = selected.clone();
     if chrono_harness::verified_verifier::sources::can_validate_selected_plan(&blocked) {
         // Validate the complete obligation graph before selecting any unit.
-        let (_, operations) =
-            chrono_judge_routes::order(&global_selected, &new.plans, &methods, &new.execute)?;
+        let operations = route_query::Graph {
+            selected: &global_selected,
+            plans: &new.plans,
+            methods: &methods,
+            execute: &new.execute,
+        }
+        .scoped_order(root, &new, None)?
+        .operations;
         let registry = new.source_registry.as_ref().map_err(Clone::clone)?;
         with_source_continuity(
             (),
@@ -1890,10 +1910,10 @@ fn prepare_plan(
 ) -> Result<chrono_judge_routes::Execution, String> {
     tracing::info_span!("ci.phase", phase = "prepare").in_scope(|| {
         tracing::info!(event_id = "ci.phase_started", "preparing registered operation plan and tools");
-        chrono_judge_routes::prepare_scheduled(
-            &req.host_root,
+        route_query::Graph { selected, plans: &new.plans, methods, execute: &new.execute }.prepare(
+            &req.host_root, new,
             object!({"base":req.base,"candidate":req.candidate,"config":req.config_sha256,"run":req.request_id,"entry":req.observations["entry"],"operation_state":operation_state_path(req, config)?}),
-            selected, &new.plans, methods, &new.execute, declarations, environment, reused, new.scheduling.clone(), false,
+            declarations, &environment, reused,
         )
     })
 }

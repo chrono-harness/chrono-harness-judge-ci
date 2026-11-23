@@ -1,4 +1,5 @@
 //! Consume the installed project executor. Child operations keep their own command limits.
+use crate::route_query::installed;
 use chrono_judge_routes::{Execution, Receipt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -90,17 +91,6 @@ impl Results {
 struct Reply {
     results: Results,
     diagnostic_error: Option<String>,
-}
-
-fn installed(root: &Path, tools: &BTreeMap<String, Value>, name: &str) -> Result<PathBuf, String> {
-    let program = match tools.get(name) {
-        Some(tool) => tool["program"]
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| format!("invalid registered {name} program"))?,
-        None => name,
-    };
-    chrono_harness::resolve_program(root, program, None)
 }
 
 fn receive(reader: impl Read, errors: &mut Vec<String>) -> Result<Vec<u8>, String> {
