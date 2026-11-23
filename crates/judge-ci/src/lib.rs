@@ -7,6 +7,8 @@ use chrono_harness::{
 #[cfg(not(verus_keep_ghost))]
 pub mod consumption;
 #[cfg(not(verus_keep_ghost))]
+mod diagnostic_session;
+#[cfg(not(verus_keep_ghost))]
 pub mod impact_query;
 #[cfg(not(verus_keep_ghost))]
 mod project_execution;
@@ -18,6 +20,8 @@ mod route_query;
 mod route_wire;
 #[cfg(not(verus_keep_ghost))]
 mod source_observations;
+#[cfg(not(verus_keep_ghost))]
+mod trace_source;
 pub mod verified_consumption;
 #[cfg(not(verus_keep_ghost))]
 use impact_query::{Edge, Query};
@@ -980,55 +984,47 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
                 &mut project_errors,
             );
         }
-        let logger = chrono_diagnostics::runtime::logger(
+        let program = profile
+            .policy
+            .tools
+            .get("chrono-diagnostics")
+            .cloned()
+            .unwrap_or_else(|| "chrono-diagnostics".into());
+        diagnostic_session::run(
             &req.host_root,
-            "chrono-judge-ci",
-            chrono_diagnostics::logging::Level::INFO,
+            &program,
             sink,
+            &mut diagnostic_errors,
+            || {
+                let span = tracing::info_span!(
+                    "ci.check",
+                    request_id = req.request_id,
+                    candidate = req.candidate,
+                    base = req.base.as_deref().unwrap_or(""),
+                    config_sha256 = req.config_sha256,
+                    judge_pid = std::process::id(),
+                );
+                let _entered = span.enter();
+                tracing::info!(
+                    event_id = "ci.check_started",
+                    "sealed request diagnostics adopted; input admission still required"
+                );
+                let result = evaluate(
+                    req,
+                    &mut reader,
+                    &mut evidence,
+                    &mut scope,
+                    profile,
+                    &mut project_errors,
+                );
+                tracing::info!(
+                    event_id = "ci.evaluation_returned",
+                    has_response = result.is_ok(),
+                    "judge evaluation returned; response publication is separate"
+                );
+                result
+            },
         )
-        .map_err(|error| {
-            diagnostic_errors.push(error.record());
-            error.to_string()
-        })?;
-        let result = logger.run(|| {
-            let span = tracing::info_span!(
-                "ci.check",
-                request_id = req.request_id,
-                candidate = req.candidate,
-                base = req.base.as_deref().unwrap_or(""),
-                config_sha256 = req.config_sha256,
-                judge_pid = std::process::id(),
-            );
-            let _entered = span.enter();
-            tracing::info!(
-                event_id = "ci.check_started",
-                "sealed request diagnostics adopted; input admission still required"
-            );
-            let result = evaluate(
-                req,
-                &mut reader,
-                &mut evidence,
-                &mut scope,
-                profile,
-                &mut project_errors,
-            );
-            tracing::info!(
-                event_id = "ci.evaluation_returned",
-                has_response = result.is_ok(),
-                "judge evaluation returned; response publication is separate"
-            );
-            result
-        });
-        if let Err(errors) = logger.finish() {
-            use chrono_diagnostics::error::RecordedError;
-            diagnostic_errors.extend(errors.iter().map(|error| {
-                chrono_diagnostics::error::ErrorRecord {
-                    schema: chrono_diagnostics::error::ErrorSchema::V1,
-                    error: error.error_node(),
-                }
-            }));
-        }
-        result
     });
     let mut response = match result {
         Ok(r) => r,
@@ -1047,9 +1043,11 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
     if !facts.is_null() {
         response.evidence["git_facts"] = facts;
     }
-    diagnostic_errors.extend(project_errors.into_iter().map(|message| {
-        chrono_diagnostics::error::Failure::new("E_PROJECT_TRACE", message).record()
-    }));
+    diagnostic_errors.extend(
+        project_errors
+            .into_iter()
+            .map(|message| diagnostic_session::failure("E_PROJECT_TRACE", message)),
+    );
     if !diagnostic_errors.is_empty() {
         response.status = verified_collection::diagnostic_failure(&mut response.results);
         response.evidence["diagnostic_errors"] = object!(diagnostic_errors);

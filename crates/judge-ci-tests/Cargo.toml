@@ -8,6 +8,8 @@ autotests = false
 [dependencies]
 vstd = "=0.0.0-2026-04-20-1748"
 serde_json = "1"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-tunnel = { version = "0.1.0", default-features = false, features = ["receiver","sender"] }
 serde = { version = "1", features = ["derive"] }
 chrono-judge-ci = { path = "../judge-ci" }
 
@@ -38,3 +40,7 @@ path = "tests/consumption.rs"
 [[test]]
 name = "verified_consumption"
 path = "tests/verified_consumption.rs"
+
+[[test]]
+name = "trace_source"
+path = "tests/trace_source.rs"

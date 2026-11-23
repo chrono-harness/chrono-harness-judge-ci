@@ -89,7 +89,6 @@ dependencies = [
 name = "chrono-judge-ci"
 version = "0.1.0"
 dependencies = [
- "chrono-diagnostics",
  "chrono-harness",
  "chrono-judge-registration",
  "serde",
@@ -106,6 +105,8 @@ dependencies = [
  "chrono-judge-ci",
  "serde",
  "serde_json",
+ "tracing",
+ "tracing-tunnel",
  "vstd",
 ]
 

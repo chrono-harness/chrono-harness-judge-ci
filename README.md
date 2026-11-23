@@ -41,3 +41,5 @@ scoped CI 用候选宿主的 chrono-judge-registration 执行 `scoped-execution-
 使用 scoped CI 的宿主可以在检查策略中登记 `causal_consumption`。CI 判官在基线和候选提交中读取启动配置，核对所选生产、安装和使用命令，并为受变更影响的关系选择已登记的证据测试。它在本仓验证准备命令及前置条件。
 
 启用 v4 登记的 scoped 宿主安装支持 `check-documents-v1` 的 chrono-judge-registration。CI 在首次检查和两个提交的比较中把固定候选文档交给已登记的安装程序，核对它返回的有效配置路径，再验入口绑定。
+
+采用 `execution_diagnostics: "chrono-log-stderr/v1"` 的宿主需安装支持 `trace-events-v1` 的 chrono-diagnostics。可以在同一份已绑定的 policy.tools 中指定其路径，默认从 PATH 解析。显式日志流、宿主滚动文件和业务回执可同时使用。日志写入失败会作为独立检查结果保留，业务操作的退出码及原始回执仍可读取。
