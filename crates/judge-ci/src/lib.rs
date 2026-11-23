@@ -353,20 +353,30 @@ fn snapshot(
     oid: &str,
     mut p: Policy,
     endpoint: EndpointTools,
-    bindings: &impl Fn(&Value, &Value, &Value) -> Result<TestBindings, String>,
+    query: &Query,
+    program: &str,
     adoption: bool,
 ) -> Result<Snapshot, String> {
-    let fm = json(&at(reader, root, oid, &p.filemap)?)?;
+    let mut fm = json(&at(reader, root, oid, &p.filemap)?)?;
     let EndpointTools {
         registration,
         tools,
     } = endpoint;
-    let fm = chrono_judge_registration::select_filemap(
-        &fm,
-        registration
-            .as_ref()
-            .map(|snapshot| snapshot.effective_path.as_str()),
-    )?;
+    if fm.get("configuration_edges").is_some() {
+        let effective_config = registration.as_ref().map(|s| s.effective_path.as_str());
+        let extra: Vec<Value> = query.read(
+            program,
+            "configuration-edges-v1",
+            &object!({"filemap":fm, "effective_config":effective_config}),
+        )?;
+        fm.as_object_mut()
+            .ok_or("expected FILEMAP object")?
+            .remove("configuration_edges");
+        fm["project_edges"]
+            .as_array_mut()
+            .ok_or("expected FILEMAP project_edges array")?
+            .extend(extra);
+    }
     let pr = json(&at(reader, root, oid, &p.projects)?)?;
     if ![object!(1), object!(2)].contains(&fm["schema_version"])
         || ![object!(1), object!(2)].contains(&pr["schema_version"])
@@ -383,7 +393,20 @@ fn snapshot(
                 .collect::<Vec<_>>()
         )
     };
-    let registered_tests = bindings(&fm, &pr, &artifacts)?;
+    let declarations: serde_json::Map<_, _> = [
+        "schema_version",
+        "execution_plans",
+        "execution_scheduling",
+        "reference_syntax",
+    ]
+    .into_iter()
+    .filter_map(|key| fm.get(key).map(|value| (key.to_owned(), value.clone())))
+    .collect();
+    let registered_tests: TestBindings = query.read(
+        program,
+        "scoped-execution-v1",
+        &object!({"filemap":declarations,"projects":pr,"artifacts":artifacts}),
+    )?;
     if adoption {
         let mut old_operations = BTreeSet::new();
         for collection in ["projects", "scripts"] {
@@ -1420,26 +1443,6 @@ fn inventory_profile(
         route_query::installed(root, &candidate_tools.tools, "chrono-judge-registration")?;
     let program = program.to_str().ok_or("non-UTF8 registration executable")?;
     let query = Query::scoped(root, &p)?;
-    let bindings = |filemap: &Value, projects: &Value, artifacts: &Value| {
-        let declarations: serde_json::Map<_, _> = [
-            "schema_version",
-            "execution_plans",
-            "execution_scheduling",
-            "reference_syntax",
-        ]
-        .into_iter()
-        .filter_map(|key| {
-            filemap
-                .get(key)
-                .map(|value| (key.to_owned(), value.clone()))
-        })
-        .collect();
-        query.read(
-            program,
-            "scoped-execution-v1",
-            &object!({"filemap":declarations,"projects":projects,"artifacts":artifacts}),
-        )
-    };
     let previous;
     let old = if req.initial {
         if req.base.is_some() {
@@ -1482,7 +1485,8 @@ fn inventory_profile(
             base,
             op,
             base_tools,
-            &bindings,
+            &query,
+            program,
             !base_tree.contains_key(&req.config_path),
         )?)
     };
@@ -1492,7 +1496,8 @@ fn inventory_profile(
         &req.candidate,
         p.clone(),
         candidate_tools,
-        &bindings,
+        &query,
+        program,
         false,
     )?;
     let (paths, mut selected, mut selection_explanation, affected) =
