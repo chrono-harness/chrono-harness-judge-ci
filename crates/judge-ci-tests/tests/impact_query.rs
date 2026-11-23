@@ -1,9 +1,4 @@
-use chrono_judge_ci::Policy;
-#[path = "../../judge-ci/src/impact_query.rs"]
-#[allow(dead_code)]
-mod impact_query;
-
-use impact_query::Query;
+use chrono_judge_ci::impact_query::Query;
 use serde_json::{Value, json};
 use std::path::Path;
 

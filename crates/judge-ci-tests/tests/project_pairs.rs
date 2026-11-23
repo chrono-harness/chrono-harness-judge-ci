@@ -1,5 +1,4 @@
-#[path = "../../judge-ci/src/project_pairs.rs"]
-mod project_pairs;
+use chrono_judge_ci::project_pairs;
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};

@@ -46,7 +46,7 @@ impl Obligations {
     }
 }
 
-pub(crate) struct Query<'a> {
+pub struct Query<'a> {
     root: &'a Path,
     timeout: u64,
     limit: usize,
@@ -109,7 +109,7 @@ impl<'a> Query<'a> {
         })
     }
 
-    pub(crate) fn read_with<T: DeserializeOwned>(
+    pub fn read_with<T: DeserializeOwned>(
         &self,
         program: &str,
         operation: &str,
