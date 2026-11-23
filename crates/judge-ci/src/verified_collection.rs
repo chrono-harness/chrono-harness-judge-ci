@@ -1,14 +1,5 @@
 //! 现役 CI 的执行结果转换、终态与离线结果集合合同。
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
-#[cfg(verus_keep_ghost)]
-use vstd::prelude::*;
-
-#[cfg(verus_keep_ghost)]
-extern crate chrono_identifiers as identifiers;
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verified_identifiers as identifiers;
-use identifiers::equal_text;
+use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 
 #[cfg(not(verus_keep_ghost))]
 pub use chrono_judge_registration::inputs::{
@@ -23,18 +14,11 @@ use result_types::{CheckResult, Status};
 #[cfg(verus_keep_ghost)]
 #[path = "source_binding.rs"]
 mod source_binding;
-#[cfg(verus_keep_ghost)]
-include!(env!("CHRONO_VERUS_SOURCE_VERIFIER"));
-
-#[cfg(verus_keep_ghost)]
-include!(env!("CHRONO_VERUS_SOURCE_REGISTRATION"));
 #[cfg(not(verus_keep_ghost))]
 pub use chrono_judge_registration::{
     ObjectFieldError, Retained, RetainedError, RetainedObservation, object_error_parts,
     parse_retained, select_retained, validate_object_fields, validate_reference_syntax,
 };
-#[cfg(verus_keep_ghost)]
-pub use source_registration::validate_reference_syntax;
 
 verus! {
 
@@ -91,9 +75,9 @@ pub fn operation_result(
         row.cause@ == operation_cause(error),
         row.exit_code == operation_exit(state@, observed),
 {
-    let passed = equal_text(state, "passed");
+    let passed = <&str>::exec_eq(state, "passed");
     let status = if passed { Status::Passed }
-        else if equal_text(state, "blocked") { Status::Blocked }
+        else if <&str>::exec_eq(state, "blocked") { Status::Blocked }
         else { Status::Failed };
     let cause = match error {
         Some(cause) => cause.clone(),
@@ -128,7 +112,7 @@ pub fn operation_result_with_sources<T>(
 {
     match binding {
         Err(cause) => {
-            if equal_text(state, "passed") {
+            if <&str>::exec_eq(state, "passed") {
                 proof {
                     reveal_strlit("failed"); reveal_strlit("passed"); reveal_strlit("blocked");
                     assert("failed"@[0] != "passed"@[0]);
@@ -226,7 +210,7 @@ pub fn has_result(
         decreases values.len() - i,
     {
         let value = &values[i];
-        if equal_text(value.id.as_str(), id) && value.status as u8 == *status as u8
+        if <&str>::exec_eq(value.id.as_str(), id) && value.status as u8 == *status as u8
             && value.exit_code == exit_code {
             return true;
         }
@@ -278,7 +262,7 @@ pub fn contains_text(values: &Vec<&str>, target: &str) -> (found: bool)
             forall|j: int| 0 <= j < i ==> (#[trigger] values[j])@ != target@,
         decreases values.len() - i,
     {
-        if equal_text(values[i], target) { return true; }
+        if <&str>::exec_eq(values[i], target) { return true; }
         i += 1;
     }
     false

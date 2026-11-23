@@ -1,7 +1,4 @@
 //! 固定请求的只读获取适配。仓内准入与失败状态由 Verus 所有者产生。
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
-#[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
 verus! {

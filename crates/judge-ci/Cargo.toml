@@ -15,6 +15,7 @@ test = false
 bench = false
 
 [dependencies]
+vstd = "=0.0.0-2026-04-20-1748"
 tracing-tunnel = { version = "0.1.0", default-features = false, features = ["receiver", "std"] }
 chrono-diagnostics = { git = "https://github.com/chrono-harness/chrono-harness-diagnostics.git", rev = "8da697ff878dbe2e31ddcfe7366714de49e79d03" }
 tracing = { version = "0.1", default-features = false, features = ["std"] }

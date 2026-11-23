@@ -19,9 +19,15 @@ use chrono_judge_routes::validate_source_plan;
 #[cfg(verus_keep_ghost)]
 use continuity_plan::validate_source_plan;
 #[cfg(verus_keep_ghost)]
-use policy::source_verifier;
+include!(env!("CHRONO_VERUS_SOURCE_VERIFIER"));
 #[cfg(verus_keep_ghost)]
-use policy::source_verifier::identifiers as source_identifiers;
+include!(env!("CHRONO_VERUS_SOURCE_REGISTRATION"));
+#[cfg(not(verus_keep_ghost))]
+use policy::validate_reference_syntax;
+#[cfg(verus_keep_ghost)]
+use source_registration::validate_reference_syntax;
+#[cfg(verus_keep_ghost)]
+use source_verifier::identifiers as source_identifiers;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
@@ -556,11 +562,11 @@ fn reference_declarations_validate_actual_prefixes_and_explicit_bases() {
         assert(vstd::utf8::encode_utf8(""@) =~= Seq::<u8>::empty());
         assert(source_verifier::sources::canonical_source_path(seq![120u8])) by (compute);
     }
-    let quoted = policy::validate_reference_syntax(&vec![reference_form("\"", 0)]);
-    let root = policy::validate_reference_syntax(&vec![reference_form("/", 2)]);
-    let wrong_base = policy::validate_reference_syntax(&vec![reference_form("/", 0)]);
-    let empty = policy::validate_reference_syntax(&vec![reference_form("", 0)]);
-    let unknown_base = policy::validate_reference_syntax(&vec![reference_form("\"", 3)]);
+    let quoted = validate_reference_syntax(&vec![reference_form("\"", 0)]);
+    let root = validate_reference_syntax(&vec![reference_form("/", 2)]);
+    let wrong_base = validate_reference_syntax(&vec![reference_form("/", 0)]);
+    let empty = validate_reference_syntax(&vec![reference_form("", 0)]);
+    let unknown_base = validate_reference_syntax(&vec![reference_form("\"", 3)]);
     expect_continuity_bool(quoted.is_ok() && root.is_ok());
     expect_continuity_bool(wrong_base.is_err() && empty.is_err() && unknown_base.is_err());
 }
