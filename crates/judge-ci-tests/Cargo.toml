@@ -7,7 +7,6 @@ autotests = false
 
 [dependencies]
 vstd = "=0.0.0-2026-04-20-1748"
-chrono-judge-routes = { git = "https://github.com/chrono-harness/chrono-harness-judge-routes.git", rev = "de64456d6571db07ead2dcc2476e7adee551a955" }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 chrono-judge-ci = { path = "../judge-ci" }
