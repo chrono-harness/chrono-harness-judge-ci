@@ -1079,13 +1079,19 @@ fn full_collection_at(
         // prepare_request observes the calling executable.
         // Bootstrap instead carries the independently validated registered runner;
         // no retained report can assign an executable identity to this request.
-        let runner = chrono_harness::no_symlink_parents(
-            root,
-            cfg["runner"]["path"]
-                .as_str()
-                .ok_or("registered runner path")?,
-        )?;
-        let runner = fs::canonicalize(runner).map_err(|e| e.to_string())?;
+        let declared = cfg["runner"]["path"]
+            .as_str()
+            .ok_or("registered runner path")?;
+        relative_path(declared)?;
+        let link = Path::new(declared);
+        if let Some(parent) = link
+            .parent()
+            .and_then(Path::to_str)
+            .filter(|s| !s.is_empty())
+        {
+            chrono_harness::no_symlink_parents(root, parent)?;
+        }
+        let runner = fs::canonicalize(root.join(link)).map_err(|e| e.to_string())?;
         let digest = chrono_harness::file_identity(&runner)?.0;
         if cfg["runner"]["sha256"] != digest || cfg["runner"]["version"] != req.runner.version {
             return Err("E_EXECUTABLE_BINDING: registered collection runner differs".into());
@@ -1109,19 +1115,7 @@ fn full_collection_at(
         collection["tests"] = object!(impact.tests);
         collection["retired_tests"] = object!(impact.retired_tests);
         let selected = query.read("chrono-judge-routes", "collected-selection-v1", &collection)?;
-        let methods = chrono_judge_registration::execution::methods(r.projects())?;
-        let operations = route_query::Graph {
-            selected: &selected,
-            plans: &chrono_judge_registration::execution::plans(r.filemap())?,
-            methods: &methods,
-            execute: &chrono_judge_routes::execute_actions(&r),
-        }
-        .ordered(
-            root,
-            &chrono_harness::resolve_program(root, "chrono-judge-routes", None)?,
-            None,
-        )?
-        .operations;
+        let routes = route_query::full_operations(&query, &r, &selected, None)?;
         let previous_registry =
             serde_json::from_value(old.filemap().clone()).map_err(|error| error.to_string());
         let registry: chrono_harness::verified_verifier::sources::SourceRegistry =
@@ -1169,8 +1163,8 @@ fn full_collection_at(
                         &registry,
                         previous_registry.as_ref().map(Some).map_err(String::as_str),
                         &impact.reached,
-                        &methods,
-                        &operations,
+                        &routes.methods,
+                        &routes.operations,
                         &continuity,
                     ),
                 )
@@ -1224,23 +1218,9 @@ pub fn full_scheduling_requirements(
     let selected = query.read("chrono-judge-routes", "global-selection", &object!({
         "config":profile,"base":view["base"],"candidate":view["candidate"],"tests":impact.tests,"retired_tests":impact.retired_tests
     }))?;
-    let plans = chrono_judge_registration::execution::plans(current.filemap())?;
     let block = chrono_harness::units::full_execution_units(current.config())?
         .ok_or("full scheduling units missing")?;
-    let units = chrono_judge_routes::validate_unit_assignments(&block, &plans)?;
-    let methods = chrono_judge_registration::execution::methods(current.projects())?;
-    let operations = route_query::Graph {
-        selected: &selected,
-        plans: &plans,
-        methods: &methods,
-        execute: &chrono_judge_routes::execute_actions(&current),
-    }
-    .ordered(
-        root,
-        &chrono_harness::resolve_program(root, "chrono-judge-routes", None)?,
-        None,
-    )?
-    .operations;
+    let routes = route_query::full_operations(&query, &current, &selected, Some(&block))?;
     let previous_registry =
         serde_json::from_value(old.filemap().clone()).map_err(|error| error.to_string());
     let registry: chrono_harness::verified_verifier::sources::SourceRegistry =
@@ -1284,8 +1264,8 @@ pub fn full_scheduling_requirements(
                     &registry,
                     previous_registry.as_ref().map(Some).map_err(String::as_str),
                     &impact.reached,
-                    &methods,
-                    &operations,
+                    &routes.methods,
+                    &routes.operations,
                     &continuity,
                 ),
             )
@@ -1293,7 +1273,7 @@ pub fn full_scheduling_requirements(
     )
     .1?;
     Ok(
-        object!({"required_units":chrono_harness::units::required(&units, &selected),"global_selected":selected,"changed_paths":impact.changed_paths.ok_or("missing FILEMAP scheduling paths")?,"git_facts":reader.observation(),"filemap_git_facts":impact.git_facts,"input_scope":"git-and-declarations; final-effective-input-admission-required"}),
+        object!({"required_units":routes.required_units,"global_selected":selected,"changed_paths":impact.changed_paths.ok_or("missing FILEMAP scheduling paths")?,"git_facts":reader.observation(),"filemap_git_facts":impact.git_facts,"input_scope":"git-and-declarations; final-effective-input-admission-required"}),
     )
 }
 
