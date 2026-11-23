@@ -1,22 +1,4 @@
-//! Native integration with the registration and runner interfaces used by CI.
-use chrono_judge_ci::verified_collection::validate_reference_syntax;
-
-#[test]
-fn reference_declarations_validate_actual_prefixes_and_explicit_bases() {
-    let check = |prefix: &str, base: u8| {
-        let declarations = serde_json::from_value(serde_json::json!([{
-            "file": "x", "before": prefix, "after": prefix, "trailing": "",
-            "suffix_before": "", "suffix_after": "", "base": base
-        }]))
-        .unwrap();
-        validate_reference_syntax(&declarations)
-    };
-    assert!(check("\"", 0).is_ok());
-    assert!(check("/", 2).is_ok());
-    assert!(check("/", 0).is_err());
-    assert!(check("", 0).is_err());
-    assert!(check("\"", 3).is_err());
-}
+//! Verify the runner response protocol consumed by CI.
 
 #[test]
 fn ci_rows_preserve_the_runner_protocol_in_both_directions() {

@@ -90,7 +90,6 @@ name = "chrono-judge-ci"
 version = "0.1.0"
 dependencies = [
  "chrono-harness",
- "chrono-judge-registration",
  "serde",
  "serde_json",
  "tracing",
@@ -107,18 +106,6 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-tunnel",
- "vstd",
-]
-
-[[package]]
-name = "chrono-judge-registration"
-version = "0.1.0"
-source = "git+https://github.com/chrono-harness/chrono-harness-judge-registration.git?rev=b6bb64c77f832f8c3f5382ee6cc4fa0985022826#b6bb64c77f832f8c3f5382ee6cc4fa0985022826"
-dependencies = [
- "chrono-harness",
- "serde",
- "serde_json",
- "time",
  "vstd",
 ]
 

@@ -209,190 +209,6 @@
       }
     ]
   },
-  ".chrono-harness/projects.json": {
-    "projects": [
-      {
-        "id": "runner",
-        "actions": {
-          "build": {
-            "operation": "build.runner",
-            "tool": "bootstrap-native",
-            "argv": [
-              "compile",
-              ".",
-              ".chrono-harness/ci/runner-build.json"
-            ]
-          }
-        },
-        "kind": "production"
-      },
-      {
-        "id": "judge-ci",
-        "actions": {
-          "build": {
-            "operation": "build.judge-ci",
-            "tool": "cargo",
-            "argv": [
-              "build",
-              "--locked",
-              "--manifest-path",
-              "crates/judge-ci/Cargo.toml"
-            ]
-          }
-        },
-        "kind": "production"
-      },
-      {
-        "id": "ci",
-        "actions": {
-          "build": {
-            "operation": "build.ci",
-            "tool": "cargo",
-            "argv": [
-              "build",
-              "--locked",
-              "--manifest-path",
-              "crates/ci/Cargo.toml"
-            ]
-          }
-        },
-        "kind": "production"
-      },
-      {
-        "id": "worktree",
-        "actions": {
-          "build": {
-            "operation": "build.worktree",
-            "tool": "cargo",
-            "argv": [
-              "build",
-              "--locked",
-              "--manifest-path",
-              "crates/worktree/Cargo.toml"
-            ]
-          }
-        },
-        "kind": "production"
-      },
-      {
-        "id": "cache",
-        "actions": {
-          "build": {
-            "operation": "build.cache",
-            "tool": "cargo",
-            "argv": [
-              "build",
-              "--locked",
-              "--manifest-path",
-              "crates/cache/Cargo.toml"
-            ]
-          }
-        },
-        "kind": "production"
-      },
-      {
-        "id": "host-bootstrap-native-tests",
-        "actions": {
-          "execute": {
-            "operation": "test.host-bootstrap-native-tests",
-            "tool": "cargo",
-            "argv": [
-              "test",
-              "--locked",
-              "--manifest-path",
-              "crates/host-bootstrap-tests/Cargo.toml",
-              "--target-dir",
-              ".chrono-harness/cache/host-bootstrap-native-tests/target"
-            ]
-          }
-        },
-        "kind": "test",
-        "tests_for": "host-bootstrap-native"
-      }
-    ],
-    "scripts": [
-      {
-        "id": "host-bootstrap-launcher",
-        "actions": {
-          "verus": {
-            "operation": "host.bootstrap-verus",
-            "tool": "bash",
-            "argv": [
-              ".chrono-harness/ci/bootstrap-native.sh",
-              ".",
-              ".chrono-harness/ci/bootstrap-verus.json"
-            ]
-          },
-          "shared-produce": {
-            "operation": "host.bootstrap-shared-produce",
-            "tool": "bash",
-            "argv": [
-              ".chrono-harness/ci/bootstrap-native.sh",
-              ".",
-              ".chrono-harness/ci/bootstrap-shared.json",
-              "produce"
-            ]
-          },
-          "shared-verify-core": {
-            "operation": "host.bootstrap-shared-verify-core",
-            "tool": "bash",
-            "argv": [
-              ".chrono-harness/ci/bootstrap-native.sh",
-              ".",
-              ".chrono-harness/ci/bootstrap-shared.json",
-              "verify",
-              "core"
-            ]
-          },
-          "shared-install-unit_runner": {
-            "operation": "host.bootstrap-shared-install-unit_runner",
-            "tool": "bash",
-            "argv": [
-              ".chrono-harness/ci/bootstrap-native.sh",
-              ".",
-              ".chrono-harness/ci/bootstrap-shared.json",
-              "install",
-              "unit_runner"
-            ]
-          },
-          "unit": {
-            "operation": "host.bootstrap-unit",
-            "tool": "bash",
-            "argv": [
-              ".chrono-harness/ci/bootstrap-native.sh",
-              ".",
-              ".chrono-harness/ci/bootstrap-unit.json"
-            ]
-          },
-          "verus-download": {
-            "operation": "host.verus-download",
-            "tool": "bootstrap-native",
-            "argv": [
-              "download",
-              ".",
-              ".chrono-harness/ci/verus-macos-arm64.sha256",
-              "/usr/bin/curl",
-              "{operation-output}",
-              "https://github.com/verus-lang/verus/releases/download/release/0.2026.04.24.f8e1704/verus-0.2026.04.24.f8e1704-arm64-macos.zip"
-            ]
-          },
-          "verus-extract-shared": {
-            "operation": "host.verus-extract-shared",
-            "tool": "tar",
-            "argv": [
-              "-x",
-              "-f",
-              ".chrono-harness/bin/verus.zip",
-              "-s",
-              "|^verus-arm64-macos|.chrono-harness/bin/verus|",
-              "--no-same-owner"
-            ]
-          }
-        },
-        "test_script": "host-bootstrap-launcher-tests"
-      }
-    ]
-  },
   ".chrono-harness/FILEMAP.json": {
     "files": [
       {
@@ -414,15 +230,6 @@
         "path": ".chrono-harness/ci/check.json"
       }
     ],
-    "execution_plans": {
-      "test:host-bootstrap-native-tests": {
-        "operations": [
-          "test.host-bootstrap-native-tests"
-        ],
-        "timeout_seconds": 60,
-        "output_limit_bytes": 1024
-      }
-    },
     "execution_scheduling": {
       "claims": {
         "test.host-bootstrap-native-tests": {
@@ -460,5 +267,186 @@
     }
   },
   ".chrono-harness/judges.json": {},
-  ".chrono-harness/workflow.json": {}
+  ".chrono-harness/workflow.json": {},
+  "startup_execution": {
+    "methods": {
+      "Ok": {
+        "build.cache": [
+          {
+            "owner": "project:cache",
+            "tool": "cargo",
+            "argv": [
+              "build",
+              "--locked",
+              "--manifest-path",
+              "crates/cache/Cargo.toml"
+            ]
+          }
+        ],
+        "build.ci": [
+          {
+            "owner": "project:ci",
+            "tool": "cargo",
+            "argv": [
+              "build",
+              "--locked",
+              "--manifest-path",
+              "crates/ci/Cargo.toml"
+            ]
+          }
+        ],
+        "build.judge-ci": [
+          {
+            "owner": "project:judge-ci",
+            "tool": "cargo",
+            "argv": [
+              "build",
+              "--locked",
+              "--manifest-path",
+              "crates/judge-ci/Cargo.toml"
+            ]
+          }
+        ],
+        "build.runner": [
+          {
+            "owner": "project:runner",
+            "tool": "bootstrap-native",
+            "argv": [
+              "compile",
+              ".",
+              ".chrono-harness/ci/runner-build.json"
+            ]
+          }
+        ],
+        "build.worktree": [
+          {
+            "owner": "project:worktree",
+            "tool": "cargo",
+            "argv": [
+              "build",
+              "--locked",
+              "--manifest-path",
+              "crates/worktree/Cargo.toml"
+            ]
+          }
+        ],
+        "host.bootstrap-shared-install-unit_runner": [
+          {
+            "owner": "script:host-bootstrap-launcher",
+            "tool": "bash",
+            "argv": [
+              ".chrono-harness/ci/bootstrap-native.sh",
+              ".",
+              ".chrono-harness/ci/bootstrap-shared.json",
+              "install",
+              "unit_runner"
+            ]
+          }
+        ],
+        "host.bootstrap-shared-produce": [
+          {
+            "owner": "script:host-bootstrap-launcher",
+            "tool": "bash",
+            "argv": [
+              ".chrono-harness/ci/bootstrap-native.sh",
+              ".",
+              ".chrono-harness/ci/bootstrap-shared.json",
+              "produce"
+            ]
+          }
+        ],
+        "host.bootstrap-shared-verify-core": [
+          {
+            "owner": "script:host-bootstrap-launcher",
+            "tool": "bash",
+            "argv": [
+              ".chrono-harness/ci/bootstrap-native.sh",
+              ".",
+              ".chrono-harness/ci/bootstrap-shared.json",
+              "verify",
+              "core"
+            ]
+          }
+        ],
+        "host.bootstrap-unit": [
+          {
+            "owner": "script:host-bootstrap-launcher",
+            "tool": "bash",
+            "argv": [
+              ".chrono-harness/ci/bootstrap-native.sh",
+              ".",
+              ".chrono-harness/ci/bootstrap-unit.json"
+            ]
+          }
+        ],
+        "host.bootstrap-verus": [
+          {
+            "owner": "script:host-bootstrap-launcher",
+            "tool": "bash",
+            "argv": [
+              ".chrono-harness/ci/bootstrap-native.sh",
+              ".",
+              ".chrono-harness/ci/bootstrap-verus.json"
+            ]
+          }
+        ],
+        "host.verus-download": [
+          {
+            "owner": "script:host-bootstrap-launcher",
+            "tool": "bootstrap-native",
+            "argv": [
+              "download",
+              ".",
+              ".chrono-harness/ci/verus-macos-arm64.sha256",
+              "/usr/bin/curl",
+              "{operation-output}",
+              "https://github.com/verus-lang/verus/releases/download/release/0.2026.04.24.f8e1704/verus-0.2026.04.24.f8e1704-arm64-macos.zip"
+            ]
+          }
+        ],
+        "host.verus-extract-shared": [
+          {
+            "owner": "script:host-bootstrap-launcher",
+            "tool": "tar",
+            "argv": [
+              "-x",
+              "-f",
+              ".chrono-harness/bin/verus.zip",
+              "-s",
+              "|^verus-arm64-macos|.chrono-harness/bin/verus|",
+              "--no-same-owner"
+            ]
+          }
+        ],
+        "test.host-bootstrap-native-tests": [
+          {
+            "owner": "project:host-bootstrap-native-tests",
+            "tool": "cargo",
+            "argv": [
+              "test",
+              "--locked",
+              "--manifest-path",
+              "crates/host-bootstrap-tests/Cargo.toml",
+              "--target-dir",
+              ".chrono-harness/cache/host-bootstrap-native-tests/target"
+            ]
+          }
+        ]
+      }
+    },
+    "owners": {
+      "Ok": {
+        "test:host-bootstrap-native-tests": [
+          "project:host-bootstrap-native-tests"
+        ]
+      }
+    },
+    "plans": {
+      "Ok": {
+        "test:host-bootstrap-native-tests": [
+          "test.host-bootstrap-native-tests"
+        ]
+      }
+    }
+  }
 }
