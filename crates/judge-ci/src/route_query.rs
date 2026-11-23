@@ -26,6 +26,65 @@ pub(super) struct Ordered {
     pub operations: Vec<Operation>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FullOperations {
+    selected: BTreeMap<String, Plan>,
+    pub operations: Vec<Operation>,
+    pub methods: BTreeMap<String, Vec<Method>>,
+    pub required_units: Option<Vec<String>>,
+}
+
+/// Schedule and collect against the same interpreted endpoint, including retired bindings.
+pub(super) fn full_operations(
+    query: &crate::impact_query::Query<'_>,
+    registrations: &chrono_judge_registration::Registrations,
+    selected: &BTreeSet<String>,
+    execution_units: Option<&Value>,
+) -> Result<FullOperations, String> {
+    let actions: BTreeMap<_, Vec<_>> = registrations
+        .test_bindings()
+        .into_iter()
+        .map(|(test, bindings)| {
+            (
+                test,
+                bindings
+                    .into_iter()
+                    .map(|binding| binding.operation)
+                    .collect(),
+            )
+        })
+        .collect();
+    let response: FullOperations = query.read(
+        "chrono-judge-routes",
+        "full-operations-v1",
+        &json!({"selected":selected, "test_operations":actions, "filemap":registrations.filemap(),
+            "projects":registrations.projects(), "execution_units":execution_units}),
+    )?;
+    if !response.selected.keys().eq(selected.iter()) {
+        return Err("E_PLAN_BINDING: routes selected different test plans".into());
+    }
+    for (test, plan) in &response.selected {
+        let declared: Plan =
+            serde_json::from_value(registrations.filemap()["execution_plans"][test].clone())
+                .map_err(|error| error.to_string())?;
+        if plan != &declared {
+            return Err("E_PLAN_BINDING: routes selected different test plans".into());
+        }
+    }
+    let expected_units = execution_units
+        .map(|block| {
+            let units = serde_json::from_value(block["units"].clone())
+                .map_err(|error| error.to_string())?;
+            Ok::<_, String>(chrono_harness::units::required(&units, selected))
+        })
+        .transpose()?;
+    if response.required_units != expected_units {
+        return Err("E_UNIT_ASSIGNMENT: routes returned different required units".into());
+    }
+    Ok(response)
+}
+
 pub(super) fn installed(
     root: &Path,
     tools: &BTreeMap<String, Value>,
