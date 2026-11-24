@@ -166,7 +166,7 @@ struct Snapshot {
     startup: Option<consumption::StartupDeclarations>,
 }
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::facts::{Reader, utf8};
+use scheduling_git::Reader;
 #[cfg(not(verus_keep_ghost))]
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
     v.get(k)
@@ -226,7 +226,6 @@ fn tree(
         .tree(root, oid)?
         .into_iter()
         .map(|(path, entry)| {
-            let path = path.text;
             if entry.kind != "blob"
                 || !matches!(entry.mode.as_str(), "100644" | "100755" | "120000")
             {
@@ -301,7 +300,7 @@ fn policy(c: &CheckConfig) -> Result<Policy, String> {
 }
 #[cfg(not(verus_keep_ghost))]
 struct EndpointTools {
-    registration: Option<chrono_harness::facts::RegistrySnapshot>,
+    registration: Option<scheduling_git::Snapshot>,
     tools: BTreeMap<String, Value>,
 }
 
@@ -632,7 +631,9 @@ fn snapshot(
         match (mode.as_str(), f.get("symlink")) {
             ("120000", Some(Value::String(target))) => {
                 relative_path(target)?;
-                if utf8(at(reader, root, oid, path)?)? != *target {
+                if String::from_utf8(at(reader, root, oid, path)?).map_err(|e| e.to_string())?
+                    != *target
+                {
                     return Err(format!("symlink target mismatch: {path}"));
                 }
                 let dest = Path::new(path)
@@ -721,10 +722,12 @@ fn snapshot(
 }
 #[cfg(not(verus_keep_ghost))]
 fn clean(reader: &Reader, root: &Path, candidate: &str, p: &Policy) -> Result<(), String> {
-    if utf8(reader.git(root, &["rev-parse", "HEAD"])?)?.trim() != candidate {
+    let checkout: chrono_harness::verified_status::Checkout =
+        reader.checkout(root, &p.artifacts)?;
+    if checkout.head != candidate {
         return Err("checkout HEAD does not equal candidate".into());
     }
-    let flags = reader.index_flags(root)?;
+    let flags = checkout.index_flags;
     if let Some((entry, reason)) =
         chrono_harness::verified_status::first_unsupported_index_flag(&flags)
     {
@@ -734,11 +737,10 @@ fn clean(reader: &Reader, root: &Path, candidate: &str, p: &Policy) -> Result<()
             entry.path
         ));
     }
-    if !reader.tracked_changes(root, candidate)?.is_empty() {
+    if !checkout.tracked.is_empty() {
         return Err("dirty tracked candidate inputs/index".into());
     }
-    let artifacts: Vec<_> = p.artifacts.iter().map(String::as_str).collect();
-    for path in reader.untracked_excluding(root, &artifacts)? {
+    for path in checkout.untracked {
         if !p.artifacts.iter().any(|a| path.starts_with(a)) {
             return Err(format!("untracked nonartifact input: {path}"));
         }
@@ -964,7 +966,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
     req: &Request,
     sink: W,
 ) -> Response {
-    let mut reader = Reader::legacy();
+    let mut reader = Reader::default();
     let mut evidence = source_observations::GitEvidence::default();
     let mut scope = "chrono-ci-check/v1".to_owned();
     let mut diagnostic_errors = Vec::new();
@@ -1036,7 +1038,13 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
             }
         }
     };
-    let facts = evidence.finish(reader.observation());
+    let facts = match reader.finish() {
+        Ok(facts) => evidence.finish(facts),
+        Err(error) => {
+            diagnostic_errors.push(diagnostic_session::failure("E_GIT_FACTS", error));
+            evidence.opening
+        }
+    };
     if !facts.is_null() {
         response.evidence["git_facts"] = facts;
     }
@@ -1112,41 +1120,37 @@ fn full_collection_at(
     scope: Option<chrono_harness::units::Scope>,
     originals: &dyn Fn(&[String]) -> Result<chrono_harness::units::FullManifest, String>,
 ) -> Result<Value, String> {
-    let (mut req, _, reader, cfg) = chrono_harness::full::prepare_request(
+    let (reader, mut header) = Reader::open(
         root,
-        profile,
-        base,
+        Some(base),
         candidate,
-        context,
-        Value::Null,
-        scope,
-        None,
+        object!({"mode":"prepared-collection","config":profile,"base":base,"candidate":candidate,
+            "context":context,"scope":scope,"judge":"routes"}),
     )?;
-    req.judge_id = "routes".into();
+    let req: chrono_harness::wire::Request =
+        serde_json::from_value(header["request"].take()).map_err(|error| error.to_string())?;
+    let cfg = header["config"].take();
     let result = (|| {
-        // prepare_request observes the calling executable.
-        // Bootstrap instead carries the independently validated registered runner;
-        // no retained report can assign an executable identity to this request.
         let declared = cfg["runner"]["path"]
             .as_str()
             .ok_or("registered runner path")?;
         relative_path(declared)?;
-        let link = Path::new(declared);
-        if let Some(parent) = link
+        if let Some(parent) = Path::new(declared)
             .parent()
             .and_then(Path::to_str)
             .filter(|s| !s.is_empty())
         {
             chrono_harness::no_symlink_parents(root, parent)?;
         }
-        let runner = fs::canonicalize(root.join(link)).map_err(|e| e.to_string())?;
-        let digest = chrono_harness::file_identity(&runner)?.0;
-        if cfg["runner"]["sha256"] != digest || cfg["runner"]["version"] != req.runner.version {
+        let runner = fs::canonicalize(root.join(declared)).map_err(|e| e.to_string())?;
+        if runner != Path::new(&req.runner.path)
+            || cfg["runner"]["sha256"] != req.runner.sha256
+            || cfg["runner"]["version"] != req.runner.version
+            || chrono_harness::file_identity(&runner)?.0 != req.runner.sha256
+        {
             return Err("E_EXECUTABLE_BINDING: registered collection runner differs".into());
         }
-        req.runner.path = runner.to_str().ok_or("runner path UTF8")?.into();
-        req.runner.sha256 = digest;
-        req.seal()?;
+        req.validate()?;
         let query = Query::full(root, &cfg)?;
         let mut evidence = source_observations::GitEvidence::default();
         let (plans, migration) =
@@ -1168,7 +1172,7 @@ fn full_collection_at(
             &selected,
             None,
         )?;
-        let facts = reader.observation();
+        let facts = reader.observation()?;
         route_query::source_plan(
             &query,
             "chrono-judge-routes",
@@ -1198,7 +1202,7 @@ fn full_collection_at(
             object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":git_facts,"filemap_git_facts":impact.git_facts}),
         )
     })();
-    fs::remove_dir_all(&req.base.root).map_err(|e| e.to_string())?;
+    reader.close()?;
     result
 }
 /// Full scheduling reads complete trees and registry/semantic blobs, never exports host sources,
@@ -1305,7 +1309,7 @@ pub fn scheduling_requirements(
         scope: None,
         observations: object!({}),
     };
-    let mut reader = Reader::legacy();
+    let mut reader = Reader::default();
     let mut evidence = source_observations::GitEvidence::default();
     let i = inventory(
         &req,
@@ -1320,7 +1324,7 @@ pub fn scheduling_requirements(
     }
     Ok(
         object!({"required_units":units::required(i.p.units.as_ref().ok_or("scheduling requires registered units")?, &i.global_selected),
-        "global_selected":i.global_selected,"changed_paths":i.paths,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.observation())}),
+        "global_selected":i.global_selected,"changed_paths":i.paths,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.finish()?)}),
     )
 }
 
@@ -1347,7 +1351,7 @@ pub fn collection_requirements(
         }),
         observations: object!({}),
     };
-    let mut reader = Reader::legacy();
+    let mut reader = Reader::default();
     let mut evidence = source_observations::GitEvidence::default();
     let i = inventory(
         &req,
@@ -1368,7 +1372,7 @@ pub fn collection_requirements(
     );
     clean(&reader, root, &req.candidate, &i.p)?;
     Ok(
-        object!({"required_units":required,"global_selected":i.global_selected,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.observation())}),
+        object!({"required_units":required,"global_selected":i.global_selected,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.finish()?)}),
     )
 }
 
@@ -1530,12 +1534,24 @@ fn inventory_profile(
         scope.report_path(&config)?;
     }
     full_oid(&req.candidate)?;
-    if let Some(path) = &p.facts_config {
-        *reader = Reader::for_config_observed(root, path).map_err(|failure| {
-            evidence.opening = failure.observation;
-            failure.message
-        })?;
-        if !reader.is_bound() {
+    let (opened, header) = Reader::open(
+        root, req.base.as_deref(), &req.candidate,
+        object!({"mode":"scoped","config":p.facts_config,"base":req.base,"candidate":req.candidate}),
+    ).map_err(|error| {
+        if let Ok(failure) = serde_json::from_str::<Value>(&error) {
+            if let Some(message) = failure["message"].as_str() {
+                evidence.opening = failure["git_facts"].clone();
+                return message.to_owned();
+            }
+        }
+        error
+    })?;
+    *reader = opened;
+    let bound = header["bound"]
+        .as_bool()
+        .ok_or("missing Git reader binding")?;
+    if p.facts_config.is_some() {
+        if !bound {
             return Err("scoped v2 requires a bound full-v3 facts_config".into());
         }
         reader.verify_config(root, &req.candidate)?;
@@ -1654,8 +1670,8 @@ fn inventory_profile(
     let mut declarations = object!(new.tools.values().cloned().collect::<Vec<_>>());
     if req.base.is_none() {
         if let Some(config_path) = &p.registration_config {
-            let values = reader.registry_values(root, &req.candidate, config_path)?;
-            let identity = chrono_harness::facts::registry_identity(&values, config_path)?;
+            let identity = reader.registry_snapshot(root, &req.candidate, config_path)?;
+            let values = identity.values;
             let cfg = &values[&identity.effective_path];
             if cfg["schema_version"] == 4 {
                 check_registration_documents(
@@ -1724,10 +1740,10 @@ fn inventory_profile(
         }
     }
     if let (Some(config_path), Some(base)) = (&p.registration_config, &req.base) {
-        let a = reader.registry_values(root, base, config_path)?;
-        let b = reader.registry_values(root, &req.candidate, config_path)?;
-        let _a_identity = chrono_harness::facts::registry_identity(&a, config_path)?;
-        let b_identity = chrono_harness::facts::registry_identity(&b, config_path)?;
+        let previous = reader.registry_snapshot(root, base, config_path)?;
+        let a = previous.values;
+        let b_identity = reader.registry_snapshot(root, &req.candidate, config_path)?;
+        let b = b_identity.values;
         let b_config = b
             .get(&b_identity.effective_path)
             .ok_or("missing effective candidate registration config")?;
@@ -1809,7 +1825,7 @@ fn inventory_profile(
             .collect();
         // The caller already owns this binding and its process history.
         reader.verify_config(root, &req.candidate)?;
-        let facts = reader.observation();
+        let facts = reader.observation()?;
         let (binding, offset) = source_observations::binding(&facts)?;
         let git = offset.map(|_| object!({"config":p.facts_config,"git_facts":binding}));
         let mode = if verify_checkout {
@@ -1886,7 +1902,7 @@ fn inventory_profile(
             &affected,
             &methods,
             &operations,
-            &reader.observation(),
+            &reader.observation()?,
             evidence,
         )?;
     }

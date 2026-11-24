@@ -1,10 +1,11 @@
 //! Collect only the original reports requested by registration's historical conversion.
+use crate::scheduling_git::Reader;
 use crate::{
     FullPlanning,
     impact_query::Query,
     source_observations::{self, GitEvidence},
 };
-use chrono_harness::{facts::Reader, units::FullManifest, wire::Request};
+use chrono_harness::{units::FullManifest, wire::Request};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,22 +42,15 @@ pub(super) fn collection(
         return Err("collection report inputs require collection scope".into());
     }
     let read = |oid: &str| -> Result<BTreeMap<String, String>, String> {
-        reader
+        Ok(reader
             .registry_snapshot(&request.candidate.root, oid, &request.config_path)?
-            .bytes
-            .into_iter()
-            .map(|(path, bytes)| {
-                String::from_utf8(bytes)
-                    .map(|original| (path, original))
-                    .map_err(|e| e.to_string())
-            })
-            .collect()
+            .originals)
     };
     let documents = [
         read(&request.base.commit)?,
         read(&request.candidate.commit)?,
     ];
-    let (binding, offset) = source_observations::binding(&reader.observation())?;
+    let (binding, offset) = source_observations::binding(&reader.observation()?)?;
     let mut message = json!({"operation":{"mode":"ci-collection","request":request,"migration":null},"originals":documents});
     let mut read_projection = |message: &Value| -> Result<Outcome, String> {
         let reply: Reply = query.read("chrono-judge-registration", "impact-views-v1", message)?;

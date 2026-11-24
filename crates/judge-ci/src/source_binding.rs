@@ -14,11 +14,13 @@ pub fn observe_candidate_bytes<P, C, N, R, F>(producer: P, candidate: C, paths: 
 }
 
 #[cfg(not(verus_keep_ghost))]
-use crate::route_wire::{Operation, Receipt};
+use crate::{
+    route_wire::{Operation, Receipt},
+    scheduling_git::Reader,
+};
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::{
     Request,
-    facts::Reader,
     verified_verifier::{
         CompilerReport, CompilerReportRead, ProofAdmission, ProofInvocation, ProofProcess,
         sources::{CandidateSourceRead, SourceRegistry},
