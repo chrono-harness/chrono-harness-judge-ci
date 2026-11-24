@@ -84,13 +84,15 @@ impl Session {
         crate::codec::decode(&output.stdout)
     }
 
-    pub fn call<T: DeserializeOwned>(&mut self, command: Value) -> Result<T, String> {
-        let stdin = self.socket.as_mut().unwrap();
-        serde_json::to_writer(&mut *stdin, &command).map_err(|e| e.to_string())?;
-        stdin
+    fn write_frame(&mut self, value: &impl serde::Serialize) -> Result<(), String> {
+        let input = self.socket.as_mut().ok_or("closed runner session")?;
+        serde_json::to_writer(&mut *input, value).map_err(|e| e.to_string())?;
+        input
             .write_all(b"\n")
-            .and_then(|_| stdin.flush())
-            .map_err(|e| e.to_string())?;
+            .and_then(|()| input.flush())
+            .map_err(|e| e.to_string())
+    }
+    fn response<T: DeserializeOwned>(&mut self) -> Result<T, String> {
         let mut line = Vec::new();
         self.output
             .read_until(b'\n', &mut line)
@@ -98,13 +100,60 @@ impl Session {
         if line.last() != Some(&b'\n') {
             return Err("E_PROTOCOL: incomplete runner response".into());
         }
-        serde_json::from_slice::<Result<T, String>>(&line)
-            .map_err(|e| format!("E_PROTOCOL: {e}"))?
+        serde_json::from_slice(&line).map_err(|e| format!("E_PROTOCOL: {e}"))
+    }
+    pub fn call<T: DeserializeOwned>(&mut self, command: Value) -> Result<T, String> {
+        self.write_frame(&command)?;
+        self.response::<Result<T, String>>()?
+    }
+
+    /// Supply only the originals requested by the owner. The runner admits the
+    /// byte count before a binary payload can enter the command stream.
+    pub(crate) fn originals<T: DeserializeOwned>(
+        &mut self,
+        operation: &Value,
+        read: &mut impl FnMut(&crate::originals::Original) -> Result<Vec<u8>, String>,
+    ) -> Result<T, String> {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Reply<T> {
+            Read {
+                read_original: crate::originals::Original,
+            },
+            Send {
+                send_original: bool,
+            },
+            Complete(Result<T, String>),
+        }
+        self.write_frame(operation)?;
+        let mut pending: Option<Vec<u8>> = None;
+        loop {
+            match self.response::<Reply<T>>()? {
+                Reply::Complete(result) => return result,
+                Reply::Read { read_original } if pending.is_none() => {
+                    let bytes = read(&read_original);
+                    self.write_frame(&bytes.as_ref().map(Vec::len))?;
+                    pending = bytes.ok();
+                }
+                Reply::Send {
+                    send_original: true,
+                } if pending.is_some() => {
+                    let bytes = pending.take().unwrap();
+                    let input = self.socket.as_mut().ok_or("closed runner session")?;
+                    input
+                        .write_all(&bytes)
+                        .and_then(|()| input.flush())
+                        .map_err(|e| e.to_string())?;
+                }
+                _ => return Err("E_PROTOCOL: invalid original transfer order".into()),
+            }
+        }
     }
     pub fn close(mut self) -> Result<(), String> {
         if let Some(socket) = self.socket.take() {
             let _ = socket.shutdown(std::net::Shutdown::Write);
         }
+        std::io::copy(&mut self.output, &mut std::io::sink()).map_err(|e| e.to_string())?;
         let status = self.child.wait().map_err(|e| e.to_string())?;
         if status.success() {
             Ok(())
@@ -118,6 +167,7 @@ impl Drop for Session {
         if let Some(socket) = self.socket.take() {
             let _ = socket.shutdown(std::net::Shutdown::Write);
         }
+        let _ = std::io::copy(&mut self.output, &mut std::io::sink());
         let _ = self.child.wait();
     }
 }

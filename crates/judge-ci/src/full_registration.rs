@@ -5,7 +5,7 @@ use crate::{
     impact_query::Query,
     source_observations::{self, GitEvidence},
 };
-use chrono_harness::units::FullManifest;
+use crate::originals::FullManifest;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{

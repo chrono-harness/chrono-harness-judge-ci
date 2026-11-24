@@ -1,8 +1,10 @@
 //! JSON interface used by native CI providers in the checked host.
 use super::*;
-use chrono_harness::{
-    prepared::{ArtifactTransport, Original, original_path},
-    units::{FullManifest, FullReportInput, read_bounded},
+use crate::{
+    originals::{
+        ArtifactTransport, FullManifest, FullReportInput, Original, original_path, read_bounded,
+    },
+    wire::{Scope, Unit},
 };
 
 #[derive(Deserialize)]
@@ -154,7 +156,11 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
                 .map_err(|e| e.to_string())?
                 .unwrap_or_default();
             let mapped = |original: &Original, limit| {
-                read_bounded(root, &original_path(original, Some(&transport))?, limit)
+                read_bounded(
+                    root,
+                    &original_path(root, original, Some(&transport))?,
+                    limit,
+                )
             };
             let bytes = mapped(&report, limit.report_bytes)?;
             if sha256(&bytes) != report.sha256 {

@@ -52,10 +52,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 #[cfg(not(verus_keep_ghost))]
 use std::path::Path;
-#[cfg(not(verus_keep_ghost))]
 mod collect;
 #[cfg(not(verus_keep_ghost))]
 mod full_registration;
+#[cfg(not(verus_keep_ghost))]
+pub mod originals;
 #[cfg(not(verus_keep_ghost))]
 pub mod requirements;
 #[cfg(not(verus_keep_ghost))]
@@ -1106,7 +1107,7 @@ struct Inventory {
     removed: BTreeMap<String, Option<String>>,
     retirement_context: Value,
     conversion: Value,
-    reused: BTreeMap<String, chrono_harness::observation::Tool>,
+    reused: BTreeMap<String, crate::route_wire::Tool>,
     environment: BTreeMap<String, String>,
     environment_policy: Value,
     declarations: Value,
@@ -1124,8 +1125,8 @@ struct Inventory {
 pub fn full_collection_requirements_with_inputs(
     root: &Path,
     profile: &str,
-    prepared: &chrono_harness::prepared::PreparedCheck,
-    originals: &dyn Fn(&[String]) -> Result<chrono_harness::units::FullManifest, String>,
+    prepared: &crate::originals::PreparedCheck,
+    originals: &dyn Fn(&[String]) -> Result<crate::originals::FullManifest, String>,
 ) -> Result<Value, String> {
     let context = prepared
         .context
@@ -1150,7 +1151,7 @@ fn full_collection_at(
     candidate: &str,
     context: &Path,
     scope: Option<Scope>,
-    originals: &dyn Fn(&[String]) -> Result<chrono_harness::units::FullManifest, String>,
+    originals: &dyn Fn(&[String]) -> Result<crate::originals::FullManifest, String>,
 ) -> Result<Value, String> {
     let (reader, mut header) = Reader::open(
         root,
@@ -1553,7 +1554,7 @@ struct FullPlanning {
 #[serde(deny_unknown_fields)]
 struct TransitionData {
     tools: Value,
-    reused: BTreeMap<String, chrono_harness::observation::Tool>,
+    reused: BTreeMap<String, crate::route_wire::Tool>,
     conversion: Value,
     retirements: BTreeMap<String, TestRetirement>,
 }
@@ -1946,7 +1947,7 @@ fn prepare_plan(
     methods: &BTreeMap<String, Vec<route_wire::Method>>,
     declarations: &Value,
     environment: BTreeMap<String, String>,
-    reused: &BTreeMap<String, chrono_harness::observation::Tool>,
+    reused: &BTreeMap<String, crate::route_wire::Tool>,
 ) -> Result<route_wire::Execution, String> {
     tracing::info_span!("ci.phase", phase = "prepare").in_scope(|| {
         tracing::info!(
