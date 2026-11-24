@@ -124,6 +124,22 @@ fn source_binding_failure_cannot_reuse_success_or_fabricate_process_exit() {
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn a_missing_proof_original_keeps_its_specific_reason_and_operation_status() {
+    let failure = CheckResult {
+        id: "verify.recovery".to_string(), status: Status::Failed,
+        cause: "E_VERUS_ARTIFACT: missing original".to_string(), exit_code: None,
+    };
+    let qualified = policy::coverage_result(failure, true);
+    assert(qualified.cause@ == "E_VERUS_COVERAGE: "@ + "E_VERUS_ARTIFACT: missing original"@);
+    let passed = policy::operation_result("verify.recovery", "passed", &None, Some(0));
+    let qualified = policy::coverage_result(passed, true);
+    assert(qualified.status == Status::Passed && qualified.exit_code == Some(0i32));
+    let unrelated = policy::operation_result("business.test", "failed", &Some("business failure".to_string()), Some(1));
+    let unchanged = policy::coverage_result(unrelated, false);
+    assert(unchanged.cause@ == "business failure"@);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn terminal_status_uses_all_original_result_states() {
     let empty: Vec<CheckResult> = Vec::new();
     let empty_status = policy::response_status(&empty);

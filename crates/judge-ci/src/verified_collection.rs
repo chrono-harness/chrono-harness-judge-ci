@@ -110,6 +110,19 @@ pub fn operation_result_with_sources<T>(
     }
 }
 
+/// A failed, required compiler operation cannot establish source coverage.
+pub fn coverage_result(mut row: CheckResult, required_proof: bool) -> (result: CheckResult)
+    ensures result.id@ == row.id@, result.status == row.status, result.exit_code == row.exit_code,
+        result.cause@ == if required_proof && row.status == Status::Failed {
+            "E_VERUS_COVERAGE: "@ + row.cause@
+        } else { row.cause@ },
+{
+    if required_proof && matches!(row.status, Status::Failed) {
+        row.cause = "E_VERUS_COVERAGE: ".to_string().concat(row.cause.as_str());
+    }
+    row
+}
+
 pub open spec fn report_failure(rows: Seq<CheckResult>) -> bool {
     exists|i: int| 0 <= i < rows.len()
         && ((#[trigger] rows[i]).status == Status::Failed || rows[i].status == Status::Blocked)

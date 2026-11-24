@@ -2122,7 +2122,7 @@ fn evaluate(
             None
         };
         for result in outcome.executed.iter().chain(&outcome.blocked) {
-            results.push(verified_collection::operation_result_with_sources(
+            let row = verified_collection::operation_result_with_sources(
                 result.operation.as_str(),
                 result.status.as_str(),
                 &result.error,
@@ -2132,6 +2132,10 @@ fn evaluate(
                     result.operation.as_str(),
                     result.receipt.as_ref(),
                 ),
+            );
+            results.push(verified_collection::coverage_result(
+                row,
+                binding.requires_compiler_output(&result.operation),
             ));
             if let Some(receipt) = &result.receipt {
                 let mut original = serde_json::to_value(receipt).map_err(|e| e.to_string())?;
