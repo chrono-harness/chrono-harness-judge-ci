@@ -26,7 +26,8 @@ fn run() -> u8 {
             let response = chrono_judge_ci::judge(&request);
             let failed = matches!(
                 response.status,
-                chrono_harness::Status::Failed | chrono_harness::Status::Blocked
+                chrono_judge_ci::verified_collection::result_types::Status::Failed
+                    | chrono_judge_ci::verified_collection::result_types::Status::Blocked
             );
             write_response(&mut output, &response)?;
             Ok(u8::from(failed))

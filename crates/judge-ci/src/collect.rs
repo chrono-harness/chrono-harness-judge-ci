@@ -11,12 +11,45 @@ use std::io::Read;
 /// Decode the response recorded by a unit and bind it to the request and process exit.
 pub fn unit_response(value: &Value, request_id: &str, exit: i32) -> Result<Response, String> {
     let response = Response::deserialize(value).map_err(|error| error.to_string())?;
-    chrono_harness::validate_response_protocol(
-        &response,
-        request_id,
-        exit,
-        chrono_harness::units::PROTOCOL,
-    )?;
+    if response.protocol != "chrono-ci-judge/v2"
+        || response.request_id != request_id
+        || response.results.is_empty()
+        || response.evidence.as_object().is_none_or(|e| e.is_empty())
+    {
+        return Err("empty or mismatched judge response".into());
+    }
+    let mut ids = BTreeSet::new();
+    for row in &response.results {
+        if row.id.is_empty() || row.cause.is_empty() || !ids.insert(&row.id) {
+            return Err("invalid/duplicate judge result".into());
+        }
+        match row.status {
+            Status::Passed if row.exit_code.is_some_and(|exit| exit != 0) => {
+                return Err("passed result has failing exit".into());
+            }
+            Status::Failed if row.exit_code == Some(0) => {
+                return Err("failed result has successful exit".into());
+            }
+            Status::NotRequired if row.exit_code.is_some() => {
+                return Err("not-required result must have null exit_code".into());
+            }
+            _ => (),
+        }
+    }
+    let failed = response
+        .results
+        .iter()
+        .any(|row| matches!(row.status, Status::Failed | Status::Blocked));
+    let unused = response
+        .results
+        .iter()
+        .all(|row| row.status == Status::NotRequired);
+    if failed != matches!(response.status, Status::Failed | Status::Blocked)
+        || unused != (response.status == Status::NotRequired)
+        || failed != (exit != 0)
+    {
+        return Err("judge exit/status/results disagreement".into());
+    }
     Ok(response)
 }
 
@@ -208,7 +241,7 @@ pub(super) fn collect(
     methods: &BTreeMap<String, Vec<Method>>,
     declarations: &Value,
     environment_policy: &Value,
-) -> Result<Evaluation, String> {
+) -> Result<Response, String> {
     let _read_scope = chrono_harness::retained_artifacts::retention::read_scope(&req.host_root)?;
     let p = &snapshot.policy;
     let source_io = super::source_binding::CandidateIo {
@@ -369,7 +402,7 @@ pub(super) fn collect(
         if !candidates.contains(&producer.executable) || producer.argv != expected_argv {
             return Err("unit judge command differs from profile".into());
         }
-        if response.status != chrono_harness::Status::Passed {
+        if response.status != Status::Passed {
             results.push(CheckResult {
                 id: format!("ci.unit.{}", input.unit),
                 status: Status::Failed,
@@ -382,7 +415,7 @@ pub(super) fn collect(
             verified.push(object!({"unit":input.unit,"path":input.path,"sha256":input.sha256,"status":"failed-original-retained"}));
             continue;
         }
-        let unit_results: Vec<CheckResult> = response.results.into_iter().map(Into::into).collect();
+        let unit_results = response.results;
         let owned = units::selection(units, selected, &input.unit)?;
         let e = &response.evidence;
         if e["scope"] != config.schema
@@ -561,7 +594,7 @@ pub(super) fn collect(
             exit_code: None,
         });
     }
-    Ok(Evaluation {
+    Ok(Response {
         protocol: units::scope_protocol(req).into(),
         request_id: req.request_id.clone(),
         status: verified_collection::response_status(&results),

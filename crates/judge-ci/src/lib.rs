@@ -1,9 +1,7 @@
 #![allow(unexpected_cfgs)]
 // Explicit CI policy: fixed Git snapshots, registered old/new impact graph, candidate operations.
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{
-    CheckConfig, PROTOCOL, Request, Response, decode, json, relative_path, sha256,
-};
+use chrono_harness::{CheckConfig, PROTOCOL, Request, decode, json, relative_path, sha256};
 #[cfg(not(verus_keep_ghost))]
 pub mod consumption;
 #[cfg(not(verus_keep_ghost))]
@@ -55,25 +53,14 @@ pub mod verified_collection;
 use verified_collection::result_types::{CheckResult, Status};
 
 #[cfg(not(verus_keep_ghost))]
-struct Evaluation {
-    protocol: String,
-    request_id: String,
-    status: Status,
-    results: Vec<CheckResult>,
-    evidence: Value,
-}
-
-#[cfg(not(verus_keep_ghost))]
-impl From<Evaluation> for Response {
-    fn from(value: Evaluation) -> Self {
-        Self {
-            protocol: value.protocol,
-            request_id: value.request_id,
-            status: value.status.into(),
-            results: value.results.into_iter().map(Into::into).collect(),
-            evidence: value.evidence,
-        }
-    }
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Response {
+    pub protocol: String,
+    pub request_id: String,
+    pub status: Status,
+    pub results: Vec<CheckResult>,
+    pub evidence: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -1029,7 +1016,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
         Ok(r) => r,
         Err(e) => {
             let (status, results) = verified_collection::inventory_failure(e);
-            Evaluation {
+            Response {
                 protocol: units::scope_protocol(req).into(),
                 request_id: req.request_id.clone(),
                 status,
@@ -1057,7 +1044,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
         response.status = verified_collection::diagnostic_failure(&mut response.results);
         response.evidence["diagnostic_errors"] = object!(diagnostic_errors);
     }
-    response.into()
+    response
 }
 // Shared DELTA planning. Collection acquisition consumes requirements, never an admission result.
 #[cfg(not(verus_keep_ghost))]
@@ -2014,7 +2001,7 @@ fn evaluate(
     scope: &mut String,
     profile: Profile,
     project_errors: &mut Vec<String>,
-) -> Result<Evaluation, String> {
+) -> Result<Response, String> {
     let Inventory {
         config,
         p,
@@ -2180,7 +2167,7 @@ fn evaluate(
             exit_code: None,
         })
     }
-    let mut response = Evaluation {
+    let mut response = Response {
         protocol: units::scope_protocol(req).into(),
         request_id: req.request_id.clone(),
         status: verified_collection::response_status(&results),
