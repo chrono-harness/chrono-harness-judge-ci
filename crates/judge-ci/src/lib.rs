@@ -1207,6 +1207,7 @@ fn full_collection_at(
         collection["retired_tests"] = object!(impact.retired_tests);
         let selected = query.read("chrono-judge-routes", "collected-selection-v1", &collection)?;
         let routes = route_query::full_operations(
+            root,
             &query,
             &r.filemap,
             &r.projects,
@@ -1300,6 +1301,7 @@ pub fn full_scheduling_requirements(
     )?;
     let block = block.ok_or("full scheduling units missing")?;
     let routes = route_query::full_operations(
+        root,
         &query,
         &current.filemap,
         &current.projects,
@@ -2108,9 +2110,16 @@ fn evaluate(
             &plan.operations,
             &new.filemap,
         )?;
-        let compact = if outcome.executed.iter().chain(&outcome.blocked).any(|row| row.receipt.is_some()) {
+        let compact = if outcome
+            .executed
+            .iter()
+            .chain(&outcome.blocked)
+            .any(|row| row.receipt.is_some())
+        {
             Some(crate::storage::Storage::open(&req.host_root)?)
-        } else {None};
+        } else {
+            None
+        };
         for result in outcome.executed.iter().chain(&outcome.blocked) {
             results.push(verified_collection::operation_result_with_sources(
                 result.operation.as_str(),
@@ -2125,11 +2134,16 @@ fn evaluate(
             ));
             if let Some(receipt) = &result.receipt {
                 let mut original = serde_json::to_value(receipt).map_err(|e| e.to_string())?;
-                original["process"] = compact.as_ref().ok_or("missing original process session")?.call(object!({"operation":"compact-process","process":original["process"]}))?;
+                original["process"] = compact
+                    .as_ref()
+                    .ok_or("missing original process session")?
+                    .call(object!({"operation":"compact-process","process":original["process"]}))?;
                 executed.push(object!({"operation":result.operation,"receipt":original}));
             }
         }
-        if let Some(storage) = compact { storage.close()?; }
+        if let Some(storage) = compact {
+            storage.close()?;
+        }
         for (old, replacement) in removed
             .iter()
             .filter_map(|(old, to)| to.as_ref().map(|to| (old, to)))

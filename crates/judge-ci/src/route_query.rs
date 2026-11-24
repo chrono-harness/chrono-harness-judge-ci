@@ -37,6 +37,7 @@ pub(super) struct FullOperations {
 
 /// Schedule and collect against the same interpreted endpoint, including retired bindings.
 pub(super) fn full_operations(
+    root: &Path,
     query: &crate::impact_query::Query<'_>,
     filemap: &Value,
     projects: &Value,
@@ -64,7 +65,7 @@ pub(super) fn full_operations(
         .map(|block| {
             let units = serde_json::from_value(block["units"].clone())
                 .map_err(|error| error.to_string())?;
-            Ok::<_, String>(chrono_harness::units::required(&units, selected))
+            crate::units::required(root, &units, selected)
         })
         .transpose()?;
     if response.required_units != expected_units {
