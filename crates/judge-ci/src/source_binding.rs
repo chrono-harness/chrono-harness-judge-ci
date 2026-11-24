@@ -39,6 +39,10 @@ impl<'a> Binding<'a> {
         })
     }
 
+    pub fn requires_compiler_output(&self, operation: &str) -> bool {
+        self.compiler_outputs.contains(operation)
+    }
+
     pub fn check(
         &self,
         state: &str,
@@ -46,7 +50,7 @@ impl<'a> Binding<'a> {
         receipt: Option<&Receipt>,
     ) -> Result<(), String> {
         let original = receipt.map(|r| {
-            let stdout = if state == "passed" && self.compiler_outputs.contains(operation) { r.process.stdout_bytes.as_slice() } else { &[] };
+            let stdout = if state == "passed" && self.requires_compiler_output(operation) { r.process.stdout_bytes.as_slice() } else { &[] };
             json!({"operation":r.operation,"argv":r.process.argv,"stdout":stdout,"exit":r.process.exit_code,"failed":r.process.failure.is_some(),"dependency":r.compiler_dependency,"artifact":r.compiler_artifact})
         });
         self.reader.call(self.root,json!({"op":"bind-operation-output","state":state,"operation":operation,"original":original}))
