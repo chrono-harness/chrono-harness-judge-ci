@@ -1,0 +1,130 @@
+{
+  "schema_version": 2,
+  "status": "active",
+  "owners": [
+    "host",
+    "judge-ci",
+    "judge-ci-tests"
+  ],
+  "projects": [
+    {
+      "id": "judge-ci",
+      "kind": "production",
+      "manifest": "crates/judge-ci/Cargo.toml",
+      "lockfile": "crates/judge-ci/Cargo.lock",
+      "root": "crates/judge-ci",
+      "test_project": "judge-ci-tests",
+      "actions": {
+        "verify_collection": {
+          "operation": "verify.ci-collection",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-collection.rlib,dep-info=.chrono-harness/state/verify.ci-collection.rlib.d",
+            "crates/judge-ci/src/verified_collection.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-collection.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "verify_consumption": {
+          "operation": "verify.ci-preparation",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-preparation.rlib,dep-info=.chrono-harness/state/verify.ci-preparation.rlib.d",
+            "crates/judge-ci/src/verified_consumption.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-preparation.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      },
+      "language": "rust"
+    },
+    {
+      "id": "judge-ci-tests",
+      "kind": "test",
+      "manifest": "crates/judge-ci-tests/Cargo.toml",
+      "lockfile": "crates/judge-ci-tests/Cargo.lock",
+      "root": "crates/judge-ci-tests",
+      "tests_for": "judge-ci",
+      "actions": {
+        "execute": {
+          "operation": "judge-ci.owner-check",
+          "tool": "bash",
+          "argv": [
+            "./check.sh",
+            "--native"
+          ]
+        },
+        "verify_collection": {
+          "operation": "verify.ci-collection-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-collection-tests.rlib,dep-info=.chrono-harness/state/verify.ci-collection-tests.rlib.d",
+            "crates/judge-ci-tests/tests/verified_collection.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-collection-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "verify_consumption": {
+          "operation": "verify.ci-preparation-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-preparation-tests.rlib,dep-info=.chrono-harness/state/verify.ci-preparation-tests.rlib.d",
+            "crates/judge-ci-tests/tests/verified_consumption.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-preparation-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      },
+      "language": "rust"
+    }
+  ],
+  "scripts": []
+}

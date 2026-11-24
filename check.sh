@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+native_only=false
+if [[ ${1:-} == --native && $# -eq 1 ]]; then
+  native_only=true
+elif [[ $# -ne 0 ]]; then
+  echo 'usage: ./check.sh [--native]' >&2
+  exit 2
+fi
 mkdir -p target
 scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
@@ -16,6 +23,21 @@ coverage_failure() {
   exit 1
 }
 
+# Read the exact library selected by Cargo in the build of the tested executable.
+metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
+  [.[] | select(.reason == "compiler-artifact" and .manifest_path == $manifest
+                 and .target.kind == ["lib"]) | .filenames[] | select(endswith(".rmeta"))]
+  | if length == 1 then .[0] else error("expected the product library") end
+' "$scratch/build.jsonl") || coverage_failure "native library was not identified"
+filename=${metadata##*/}
+stem=${filename#lib}
+stem=${metadata%/*}/${stem%.rmeta}
+chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_collection.rs src/result_types.rs src/collect.rs src/verified_consumption.rs \
+  src/consumption.rs src/lib.rs ||
+  coverage_failure "native library differs from required sources"
+
+if "$native_only"; then exit 0; fi
+
 verifier=$(command -v "${VERUS:-verus}") || coverage_failure "registered verifier was not found"
 
 prove() {
@@ -30,19 +52,6 @@ admit_proof() {
     0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$@" ||
     coverage_failure "$operation: required proof result was not admitted"
 }
-
-# Read the exact library selected by Cargo in the build of the tested executable.
-metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
-  [.[] | select(.reason == "compiler-artifact" and .manifest_path == $manifest
-                 and .target.kind == ["lib"]) | .filenames[] | select(endswith(".rmeta"))]
-  | if length == 1 then .[0] else error("expected the product library") end
-' "$scratch/build.jsonl") || coverage_failure "native library was not identified"
-filename=${metadata##*/}
-stem=${filename#lib}
-stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_collection.rs src/result_types.rs src/collect.rs src/verified_consumption.rs \
-  src/consumption.rs src/lib.rs ||
-  coverage_failure "native library differs from required sources"
 
 src=crates/judge-ci/src
 tests=crates/judge-ci-tests/tests
