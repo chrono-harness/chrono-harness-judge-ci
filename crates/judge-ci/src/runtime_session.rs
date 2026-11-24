@@ -54,7 +54,7 @@ impl Session {
         operation: &str,
         input: &impl serde::Serialize,
     ) -> Result<T, String> {
-        let encoded = serde_json::to_vec(input).map_err(|e|e.to_string())?;
+        let encoded = serde_json::to_vec(input).map_err(|e| e.to_string())?;
         let program = crate::observed::installed(root)?;
         let mut child = crate::storage::command(&program, &program)?
             .arg(operation)
