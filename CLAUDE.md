@@ -8,7 +8,7 @@
 
 ## 本仓开发
 
-产品位于 [`crates/judge-ci`](crates/judge-ci)。原生测试位于 [`crates/judge-ci-tests`](crates/judge-ci-tests)。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。
+产品位于 [`crates/judge-ci`](crates/judge-ci)。原生测试位于 [`crates/judge-ci-tests`](crates/judge-ci-tests)。在仓库根目录运行 `mise exec -- ./check.sh` 按 Git 变更检查CI 原件准入与汇总的证明与原生消费者。汇总读取固定候选的单元原件。
 
 日常开发和 PR 使用 `dev`，正式版本从 `main` 发布。
 
