@@ -3,7 +3,7 @@ mod originals;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
-    io::BufReader,
+    io::{BufReader, Write},
     os::{fd::OwnedFd, unix::net::UnixStream},
     path::Path,
     process::{Child, ChildStdout, Stdio},

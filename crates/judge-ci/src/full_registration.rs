@@ -1,11 +1,11 @@
 //! Collect only the original reports requested by registration's historical conversion.
+use crate::originals::FullManifest;
 use crate::scheduling_git::Reader;
 use crate::{
     FullPlanning,
     impact_query::Query,
     source_observations::{self, GitEvidence},
 };
-use crate::originals::FullManifest;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{

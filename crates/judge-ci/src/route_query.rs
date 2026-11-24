@@ -1,8 +1,8 @@
 //! Read scoped operation declarations and tool observations from the host's routes release.
 use super::route_wire::{Execution, Operation, Receipt};
 use crate::Snapshot;
-use crate::route_wire::{Method, Plan};
 use crate::route_wire::Tool;
+use crate::route_wire::{Method, Plan};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
