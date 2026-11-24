@@ -2,7 +2,7 @@
 use super::*;
 use chrono_harness::{
     prepared::{ArtifactTransport, Original, original_path},
-    units::{FullManifest, FullReportInput, Scope, read_bounded},
+    units::{FullManifest, FullReportInput, read_bounded},
 };
 
 #[derive(Deserialize)]
@@ -69,7 +69,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             initial,
         } => {
             crate::files::no_symlink_parents(root, &profile)?;
-            chrono_harness::units::artifact_path(&manifest)?;
+            units::artifact_path(&manifest)?;
             collection_requirements(root, &profile, &manifest, base, candidate, initial)
         }
         Query::FullCollect {
@@ -88,7 +88,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
                 object!({"operation":"full-execution-units","profile":config}),
             )?;
             let block = block.ok_or("full provider requires registered full units")?;
-            let registered: BTreeMap<String, chrono_harness::units::Unit> =
+            let registered: BTreeMap<String, Unit> =
                 serde_json::from_value(block["units"].clone()).map_err(|e| e.to_string())?;
             let limit = block["collection_limits"]["report_bytes"]
                 .as_u64()
@@ -136,7 +136,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
                 return Err("collection check profile changed".into());
             }
             let config: CheckConfig = decode(&raw)?;
-            let registered: BTreeMap<String, chrono_harness::units::Unit> =
+            let registered: BTreeMap<String, Unit> =
                 serde_json::from_value(config.policy["units"].clone())
                     .map_err(|e| e.to_string())?;
             if registered

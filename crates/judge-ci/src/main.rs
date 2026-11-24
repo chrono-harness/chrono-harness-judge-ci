@@ -22,7 +22,7 @@ fn run() -> u8 {
             write_response(&mut output, &response)?;
             Ok(0)
         } else {
-            let request = chrono_judge_ci::codec::decode::<chrono_harness::Request>(&bytes)?;
+            let request = chrono_judge_ci::codec::decode::<chrono_judge_ci::wire::Request>(&bytes)?;
             let response = chrono_judge_ci::judge(&request);
             let failed = matches!(
                 response.status,

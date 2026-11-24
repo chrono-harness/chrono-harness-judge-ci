@@ -1,8 +1,44 @@
 use super::*;
-use chrono_harness::units::{Scope, Unit};
+use crate::runtime_session::Session;
+use crate::wire::{Scope, Unit};
+
+pub(super) const SCOPED_PROTOCOL: &str = "chrono-ci-judge/v2";
+
+pub(super) fn artifact_path(path: &str) -> Result<(), String> {
+    relative_path(path)?;
+    if !path.starts_with(".chrono-harness/state/") {
+        return Err(
+            "unit reports and collection manifests must reside in .chrono-harness/state/".into(),
+        );
+    }
+    Ok(())
+}
+
+pub(super) fn reference_publication(root: &Path, config: &CheckConfig) -> Result<bool, String> {
+    if config.policy.get("report_publication").is_none() {
+        return Ok(false);
+    }
+    Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"scoped-reference-publication","config":config}),
+    )
+}
+
+pub(super) fn report_path(
+    root: &Path,
+    config: &CheckConfig,
+    scope: &Scope,
+) -> Result<String, String> {
+    Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"scoped-report-path","config":config,"scope":scope}),
+    )
+}
 
 pub(super) fn validate(config: &CheckConfig, policy: &Policy) -> Result<(), String> {
-    if config.schema != chrono_harness::units::PROFILE {
+    if config.schema != "chrono-ci-check/v3" {
         if config.policy.get("units").is_some()
             || config.policy.get("shared_operations").is_some()
             || config.policy.get("collection_limits").is_some()
@@ -34,8 +70,8 @@ pub(super) fn validate(config: &CheckConfig, policy: &Policy) -> Result<(), Stri
     }
     let mut paths = BTreeSet::from([config.report_path.clone()]);
     for (key, unit) in units {
-        chrono_harness::units::id(key)?;
-        chrono_harness::units::artifact_path(&unit.report_path)?;
+        id(key).map_err(|_| format!("invalid CI unit ID: {key:?}"))?;
+        artifact_path(&unit.report_path)?;
         if !policy
             .artifacts
             .iter()
@@ -58,50 +94,60 @@ pub(super) fn validate(config: &CheckConfig, policy: &Policy) -> Result<(), Stri
     Ok(())
 }
 
-pub(super) fn assignments(snapshot: &Snapshot) -> Result<(), String> {
+pub(super) fn assignments(
+    root: &Path,
+    query: &Query<'_>,
+    candidate_tools: &BTreeMap<String, Value>,
+    snapshot: &Snapshot,
+) -> Result<(), String> {
     let Some(units) = &snapshot.policy.units else {
         return Ok(());
     };
-    let mut operations: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (unit, definition) in units {
-        for test in &definition.tests {
-            let plan = snapshot
-                .plans
-                .get(test)
-                .ok_or_else(|| format!("unknown CI unit plan: {test}"))?;
-            for op in &plan.operations {
-                operations
-                    .entry(op.clone())
-                    .or_default()
-                    .insert(unit.clone());
-            }
-        }
-    }
-    chrono_harness::units::assignments(
-        units,
-        &snapshot.plans.keys().cloned().collect(),
-        snapshot
-            .policy
-            .shared_operations
-            .as_ref()
-            .ok_or("missing shared operations")?,
-        &operations,
+    let shared = snapshot
+        .policy
+        .shared_operations
+        .as_ref()
+        .ok_or("missing shared operations")?;
+    let routes = route_query::installed(root, candidate_tools, "chrono-judge-routes")?;
+    let program = routes.to_str().ok_or("non-UTF8 routes executable")?;
+    query.read(
+        program,
+        "check-unit-assignments-v1",
+        &object!({
+            "execution_units":{"units":units,"shared_operations":shared},
+            "plans":snapshot.plans,
+        }),
     )
 }
+
 pub(super) fn selection(
+    root: &Path,
     units: &BTreeMap<String, Unit>,
     selected: &BTreeSet<String>,
     unit: &str,
 ) -> Result<BTreeSet<String>, String> {
-    chrono_harness::units::select(units, selected, unit)
+    Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"unit-tests","units":units,"selected":selected,"unit":unit}),
+    )
 }
-pub(super) fn required(units: &BTreeMap<String, Unit>, selected: &BTreeSet<String>) -> Vec<String> {
-    chrono_harness::units::required(units, selected)
+
+pub(super) fn required(
+    root: &Path,
+    units: &BTreeMap<String, Unit>,
+    selected: &BTreeSet<String>,
+) -> Result<Vec<String>, String> {
+    Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"required-units","units":units,"selected":selected}),
+    )
 }
 
 pub(super) fn scope_protocol(req: &Request) -> &str {
     if req.scope.is_some() {
-        chrono_harness::units::PROTOCOL
+        SCOPED_PROTOCOL
     } else {
         PROTOCOL
     }
@@ -112,10 +158,10 @@ pub(super) fn decorate(
     snapshot: &Snapshot,
     selected: &BTreeSet<String>,
     evidence: &mut Value,
-) {
+) -> Result<(), String> {
     if let Some(units) = &snapshot.policy.units {
         evidence["global_selected"] = object!(selected);
-        evidence["required_units"] = object!(required(units, selected));
+        evidence["required_units"] = object!(required(&req.host_root, units, selected)?);
         evidence["execution_scope"] = object!(req.scope);
         let own: BTreeSet<String> = serde_json::from_value(evidence["selected"].clone()).unwrap();
         evidence["assigned_elsewhere"] = object!(selected.difference(&own).collect::<Vec<_>>());
@@ -125,4 +171,5 @@ pub(super) fn decorate(
             "global"
         });
     }
+    Ok(())
 }

@@ -1,18 +1,20 @@
 #![allow(unexpected_cfgs)]
 // Explicit CI policy: fixed Git snapshots, registered old/new impact graph, candidate operations.
 #[cfg(not(verus_keep_ghost))]
+use crate::wire::{CheckConfig, PROTOCOL, Request, Scope, Unit};
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     codec::{decode, json},
     files::{relative_path, sha256},
 };
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::{CheckConfig, PROTOCOL, Request};
 #[cfg(not(verus_keep_ghost))]
 pub mod codec;
 #[cfg(not(verus_keep_ghost))]
 pub mod consumption;
 #[cfg(not(verus_keep_ghost))]
 mod diagnostic_session;
+#[cfg(not(verus_keep_ghost))]
+pub mod wire;
 #[cfg(not(verus_keep_ghost))]
 pub use diagnostic_session::cli;
 #[cfg(not(verus_keep_ghost))]
@@ -119,7 +121,7 @@ pub struct Policy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_limits: Option<CollectionLimits>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub units: Option<BTreeMap<String, chrono_harness::units::Unit>>,
+    pub units: Option<BTreeMap<String, Unit>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_operations: Option<BTreeMap<String, Vec<String>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -252,8 +254,8 @@ fn tree(
         .collect()
 }
 #[cfg(not(verus_keep_ghost))]
-fn policy(c: &CheckConfig) -> Result<Policy, String> {
-    chrono_harness::units::reference_publication(c)?;
+fn policy(root: &Path, c: &CheckConfig) -> Result<Policy, String> {
+    units::reference_publication(root, c)?;
     if !matches!(
         c.schema.as_str(),
         "chrono-ci-check/v1" | "chrono-ci-check/v2" | "chrono-ci-check/v3"
@@ -735,7 +737,6 @@ fn snapshot(
         scheduling,
         startup,
     };
-    units::assignments(&snapshot)?;
     Ok(snapshot)
 }
 #[cfg(not(verus_keep_ghost))]
@@ -1148,7 +1149,7 @@ fn full_collection_at(
     base: &str,
     candidate: &str,
     context: &Path,
-    scope: Option<chrono_harness::units::Scope>,
+    scope: Option<Scope>,
     originals: &dyn Fn(&[String]) -> Result<chrono_harness::units::FullManifest, String>,
 ) -> Result<Value, String> {
     let (reader, mut header) = Reader::open(
@@ -1242,7 +1243,7 @@ fn full_collection_at(
         let units = serde_json::from_value(r.config["execution_units"]["units"].clone())
             .map_err(|e| e.to_string())?;
         Ok(
-            object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":git_facts,"filemap_git_facts":impact.git_facts}),
+            object!({"required_units":units::required(root, &units, &selected)?,"global_selected":selected,"git_facts":git_facts,"filemap_git_facts":impact.git_facts}),
         )
     })();
     reader.close()?;
@@ -1372,7 +1373,7 @@ pub fn scheduling_requirements(
         return Err(format!("blocked global obligations: {:?}", i.blocked));
     }
     Ok(
-        object!({"required_units":units::required(i.p.units.as_ref().ok_or("scheduling requires registered units")?, &i.global_selected),
+        object!({"required_units":units::required(root, i.p.units.as_ref().ok_or("scheduling requires registered units")?, &i.global_selected)?,
         "global_selected":i.global_selected,"changed_paths":i.paths,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.finish()?)}),
     )
 }
@@ -1387,7 +1388,7 @@ pub fn collection_requirements(
     initial: bool,
 ) -> Result<Value, String> {
     let req = Request {
-        protocol: chrono_harness::units::PROTOCOL.into(),
+        protocol: units::SCOPED_PROTOCOL.into(),
         request_id: "collection-requirements".into(),
         host_root: root.into(),
         config_path: profile.into(),
@@ -1395,7 +1396,7 @@ pub fn collection_requirements(
         base,
         candidate,
         initial,
-        scope: Some(chrono_harness::units::Scope::Collect {
+        scope: Some(Scope::Collect {
             manifest: manifest.into(),
         }),
         observations: object!({}),
@@ -1414,11 +1415,12 @@ pub fn collection_requirements(
         return Err(format!("blocked global obligations: {:?}", i.blocked));
     }
     let required = units::required(
+        root,
         i.p.units
             .as_ref()
             .ok_or("collection requires registered units")?,
         &i.global_selected,
-    );
+    )?;
     clean(&reader, root, &req.candidate, &i.p)?;
     Ok(
         object!({"required_units":required,"global_selected":i.global_selected,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.finish()?)}),
@@ -1452,7 +1454,7 @@ impl Profile {
         {
             return Err("unsupported selection_evidence representation".into());
         }
-        let policy = policy(&config)?;
+        let policy = policy(&req.host_root, &config)?;
         Ok(Self {
             bytes,
             config,
@@ -1580,7 +1582,7 @@ fn inventory_profile(
     } = profile;
     *scope = config.schema.clone();
     if let Some(scope) = &req.scope {
-        scope.report_path(&config)?;
+        units::report_path(root, &config, scope)?;
     }
     full_oid(&req.candidate)?;
     let (opened, header) = Reader::open(
@@ -1633,7 +1635,7 @@ fn inventory_profile(
         let base_tree = tree(reader, root, base)?;
         let op = if base_tree.contains_key(&req.config_path) {
             let c: CheckConfig = decode(&at(reader, root, base, &req.config_path)?)?;
-            let op = policy(&c)?;
+            let op = policy(root, &c)?;
             previous = c.schema;
             if op.filemap != p.filemap || op.projects != p.projects {
                 return Err("registry path migration unsupported".into());
@@ -1674,6 +1676,9 @@ fn inventory_profile(
         program,
         false,
     )?;
+    for endpoint in old.iter().chain(std::iter::once(&new)) {
+        units::assignments(root, &query, &new.tools, endpoint)?;
+    }
     let (paths, mut selected, mut selection_explanation, affected) =
         ci_impact(&query, program, root, old.as_ref(), &new)?;
     let consumption = consumption::check_scoped(
@@ -1919,7 +1924,7 @@ fn report_path(req: &Request, config: &CheckConfig) -> Result<String, String> {
     Ok(req
         .scope
         .as_ref()
-        .map(|scope| scope.report_path(config))
+        .map(|scope| units::report_path(&req.host_root, config, scope))
         .transpose()?
         .unwrap_or_else(|| config.report_path.clone()))
 }
@@ -2029,7 +2034,7 @@ fn evaluate(
         inventory_profile(req, reader, evidence, scope, true, true, profile)
     })?;
     let root = &req.host_root;
-    if let Some(chrono_harness::units::Scope::Collect { manifest }) = &req.scope {
+    if let Some(Scope::Collect { manifest }) = &req.scope {
         if !blocked.is_empty() {
             return Err(format!("blocked global obligations: {blocked:?}"));
         }
@@ -2051,8 +2056,9 @@ fn evaluate(
         response.evidence["retirement_context"] = retirement_context;
         return Ok(response);
     }
-    if let Some(chrono_harness::units::Scope::Unit { unit }) = &req.scope {
+    if let Some(Scope::Unit { unit }) = &req.scope {
         selected = units::selection(
+            root,
             p.units.as_ref().ok_or("unit profile missing assignments")?,
             &global_selected,
             unit,
@@ -2176,7 +2182,7 @@ fn evaluate(
         results,
         evidence: object!({"scope":config.schema,"mode":if req.initial{"initial-inventory"}else{"delta"},"base":req.base,"candidate":req.candidate,"previous_enforcement":previous,"changed_paths":paths,"selection_explanation":selection_explanation,"selected":selected,"operations":operations,"plan":plan,"conversion":conversion,"removed":removed,"retirement_context":retirement_context,"execution_evidence_schema":"chrono-ci-executions/v2","executed":executed,"not_required":not_required,"blocked":blocked,"input_closure":"incomplete: ambient toolchain, SDK, environment and external inputs are not fully enumerated","parity":"unestablished"}),
     };
-    units::decorate(req, &new, &global_selected, &mut response.evidence);
+    units::decorate(req, &new, &global_selected, &mut response.evidence)?;
     response.evidence["operation_state"] = object!(operation_state);
     Ok(response)
 }
