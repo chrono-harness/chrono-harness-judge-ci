@@ -165,6 +165,43 @@ pub fn response_status(rows: &Vec<CheckResult>) -> (status: Status)
     if first_failure(rows).is_some() { Status::Failed } else { Status::Passed }
 }
 
+pub open spec fn all_not_required(rows: Seq<CheckResult>) -> bool {
+    forall|i: int| 0 <= i < rows.len() ==> (#[trigger] rows[i]).status == Status::NotRequired
+}
+
+fn only_not_required(rows: &Vec<CheckResult>) -> (all: bool)
+    ensures all == all_not_required(rows@),
+{
+    let mut index = 0;
+    while index < rows.len()
+        invariant
+            0 <= index <= rows.len(),
+            forall|j: int| 0 <= j < index ==> (#[trigger] rows[j]).status == Status::NotRequired,
+        decreases rows.len() - index,
+    {
+        if !matches!(rows[index].status, Status::NotRequired) {
+            assert(!all_not_required(rows@));
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+/// The collection reads the recorded status and the exit of the same unit process.
+pub fn unit_outcome_matches(rows: &Vec<CheckResult>, reported: Status, exit: i32) -> (ok: bool)
+    ensures ok == (rows.len() > 0
+        && report_failure(rows@) == (reported == Status::Failed || reported == Status::Blocked)
+        && report_failure(rows@) == (exit != 0)
+        && all_not_required(rows@) == (reported == Status::NotRequired)),
+{
+    if rows.is_empty() { return false; }
+    let failed = first_failure(rows).is_some();
+    failed == matches!(reported, Status::Failed | Status::Blocked)
+        && failed == (exit != 0)
+        && only_not_required(rows) == matches!(reported, Status::NotRequired)
+}
+
 /// 原异常产生唯一库存失败记录；状态与该实际记录同源。
 pub fn inventory_failure(cause: String) -> (failure: (Status, Vec<CheckResult>))
     ensures failure.0 == report_status(failure.1@), failure.0 == Status::Failed,

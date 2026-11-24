@@ -216,6 +216,30 @@ fn result(id: &str, status: Status, exit_code: Option<i32>) -> (out: CheckResult
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn unit_outcome_uses_the_complete_row_set_and_actual_exit() {
+    let mut rows = Vec::new();
+    expect(!policy::unit_outcome_matches(&rows, Status::NotRequired, 0));
+    rows.push(result("skipped", Status::NotRequired, None));
+    assert(rows[0].status == Status::NotRequired);
+    expect(policy::unit_outcome_matches(&rows, Status::NotRequired, 0));
+    expect(!policy::unit_outcome_matches(&rows, Status::Passed, 0));
+    rows.push(result("build", Status::Passed, Some(0)));
+    assert(rows[1].status == Status::Passed);
+    expect(policy::unit_outcome_matches(&rows, Status::Passed, 0));
+    expect(!policy::unit_outcome_matches(&rows, Status::NotRequired, 0));
+    expect(!policy::unit_outcome_matches(&rows, Status::Passed, -1));
+    rows.push(result("preparation", Status::Blocked, None));
+    assert(rows[2].status == Status::Blocked);
+    expect(policy::unit_outcome_matches(&rows, Status::Blocked, -1));
+    expect(policy::unit_outcome_matches(&rows, Status::Failed, 2));
+    expect(!policy::unit_outcome_matches(&rows, Status::Passed, 0));
+    expect(!policy::unit_outcome_matches(&rows, Status::Blocked, 0));
+    rows.push(result("test", Status::Failed, Some(101)));
+    assert(rows[3].status == Status::Failed);
+    expect(policy::unit_outcome_matches(&rows, Status::Failed, 101));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn operation_success_requires_all_fields_on_one_exact_result() {
     proof {
         reveal_strlit("build"); reveal_strlit("other");
