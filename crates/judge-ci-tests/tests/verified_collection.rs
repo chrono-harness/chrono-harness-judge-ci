@@ -128,6 +128,8 @@ fn terminal_status_uses_all_original_result_states() {
     let empty: Vec<CheckResult> = Vec::new();
     let empty_status = policy::response_status(&empty);
     assert(empty_status == Status::Passed);
+    let first = policy::first_failure(&empty);
+    assert(first.is_none());
     let success = vec![
         result("a", Status::NotRequired, Some(-7)),
         result("a", Status::Passed, None),
@@ -152,6 +154,8 @@ fn terminal_status_uses_all_original_result_states() {
     ];
     let duplicates = policy::response_status(&duplicate_failures);
     assert(duplicates == Status::Failed);
+    let first = policy::first_failure(&duplicate_failures);
+    assert(first == Some(1usize));
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
