@@ -250,7 +250,7 @@ pub(super) struct SourceEndpoint<'a> {
     pub commit: &'a str,
     pub filemap: &'a Value,
     pub projects: &'a Value,
-    pub artifacts: Vec<&'a str>,
+    pub artifacts: Vec<String>,
 }
 
 impl<'a> SourceEndpoint<'a> {
@@ -259,16 +259,12 @@ impl<'a> SourceEndpoint<'a> {
             commit,
             filemap: &snapshot.filemap,
             projects: &snapshot.registry,
-            artifacts: snapshot
-                .policy
-                .artifacts
-                .iter()
-                .map(String::as_str)
-                .collect(),
+            artifacts: snapshot.policy.artifacts.clone(),
         }
     }
 
     pub fn registered(
+        root: &Path,
         commit: &'a str,
         config: &'a Value,
         filemap: &'a Value,
@@ -278,7 +274,11 @@ impl<'a> SourceEndpoint<'a> {
             commit,
             filemap,
             projects,
-            artifacts: chrono_harness::facts::artifact_directories(config)?,
+            artifacts: crate::runtime_session::Session::query(
+                root,
+                "judge-evidence-v1",
+                json!({"operation":"artifact-directories", "config":config}),
+            )?,
         })
     }
 }

@@ -1182,12 +1182,14 @@ fn full_collection_at(
             "chrono-judge-routes",
             profile,
             Some(route_query::SourceEndpoint::registered(
+                root,
                 &req.base.commit,
                 &old.config,
                 &old.filemap,
                 &old.projects,
             )?),
             route_query::SourceEndpoint::registered(
+                root,
                 &req.candidate.commit,
                 &r.config,
                 &r.filemap,
@@ -1253,8 +1255,12 @@ pub fn full_scheduling_requirements(
     let selected = query.read("chrono-judge-routes", "global-selection", &object!({
         "config":profile,"base":previous,"candidate":candidate_documents,"tests":impact.tests,"retired_tests":impact.retired_tests
     }))?;
-    let block = chrono_harness::units::full_execution_units(&current.config)?
-        .ok_or("full scheduling units missing")?;
+    let block: Option<Value> = crate::runtime_session::Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"full-execution-units","profile":current.config}),
+    )?;
+    let block = block.ok_or("full scheduling units missing")?;
     let routes = route_query::full_operations(
         &query,
         &current.filemap,
@@ -1268,12 +1274,14 @@ pub fn full_scheduling_requirements(
         "chrono-judge-routes",
         profile,
         Some(route_query::SourceEndpoint::registered(
+            root,
             base,
             &old.config,
             &old.filemap,
             &old.projects,
         )?),
         route_query::SourceEndpoint::registered(
+            root,
             candidate,
             &current.config,
             &current.filemap,
@@ -1669,7 +1677,7 @@ fn inventory_profile(
     let mut environment: BTreeMap<String, String> = std::env::vars().collect();
     environment.extend(p.environment.clone());
     #[cfg(unix)]
-    environment.remove(chrono_harness::process_fds::ENV);
+    environment.remove("CHRONO_PROCESS_FDS");
     let mut environment_policy = object!({"values":p.environment,"inherit":null});
     let mut declarations = object!(new.tools.values().cloned().collect::<Vec<_>>());
     if req.base.is_none() {

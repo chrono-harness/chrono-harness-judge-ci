@@ -221,16 +221,18 @@ pub fn unit_originals(
     })
 }
 
-fn expanded_receipt(row: &Value) -> Result<Receipt, String> {
+fn expanded_receipt(
+    session: &mut crate::runtime_session::Session,
+    row: &Value,
+) -> Result<Receipt, String> {
     if row.get("process").is_some() {
         return Err("unit execution has duplicate process evidence".into());
     }
-    let mut original = row["receipt"].clone();
+    let original = &row["receipt"];
     if original["process"].get("encoding").is_none() {
         return Err("unit execution process encoding required".into());
     }
-    original["process"] = chrono_harness::full::expand_process(&original["process"])?;
-    serde_json::from_value(original).map_err(|e| e.to_string())
+    session.call(object!({"operation":"expand-record","record":original}))
 }
 
 pub(super) fn collect(
@@ -563,7 +565,14 @@ fn collect_checked(
         if e["execution_evidence_schema"] != "chrono-ci-executions/v2" {
             return Err("unsupported or missing unit execution evidence schema".into());
         }
-        let receipts: Vec<_> = executed.iter().map(expanded_receipt).collect();
+        let program = crate::observed::installed(&req.host_root)?;
+        let mut evidence =
+            crate::runtime_session::Session::open(&req.host_root, &program, "judge-evidence-v1")?;
+        let receipts: Vec<_> = executed
+            .iter()
+            .map(|row| expanded_receipt(&mut evidence, row))
+            .collect();
+        evidence.close()?;
         let supplied = operations
             .iter()
             .zip(&receipts)
