@@ -467,7 +467,7 @@ fn collect_checked(
             &routes,
             &plan,
             &super::scoped_binding(&original),
-            &super::report_path(&original, config)?,
+            &super::report_path(&req.host_root, &original, config)?,
         )?;
         if plan.root != original.host_root {
             return Err("unit plan binding mismatch".into());

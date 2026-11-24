@@ -1923,11 +1923,11 @@ fn inventory_profile(
     })
 }
 #[cfg(not(verus_keep_ghost))]
-fn report_path(req: &Request, config: &CheckConfig) -> Result<String, String> {
+fn report_path(root: &Path, req: &Request, config: &CheckConfig) -> Result<String, String> {
     Ok(req
         .scope
         .as_ref()
-        .map(|scope| units::report_path(&req.host_root, config, scope))
+        .map(|scope| units::report_path(root, config, scope))
         .transpose()?
         .unwrap_or_else(|| config.report_path.clone()))
 }
@@ -1964,7 +1964,7 @@ fn prepare_plan(
             &req.host_root,
             new,
             scoped_binding(req),
-            &report_path(req, config)?,
+            &report_path(&req.host_root, req, config)?,
             declarations,
             &environment,
             reused,
