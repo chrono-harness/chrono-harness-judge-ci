@@ -2,21 +2,55 @@
 use super::*;
 use crate::route_wire::Method;
 use crate::route_wire::{Execution, Receipt};
-use chrono_harness::{
-    ProcessResult,
-    units::{Manifest, Scope},
+use crate::{
+    originals::{self, ArtifactTransport, Manifest, Original, PreparedCheck, ReportReference},
+    route_wire::ProcessResult,
+    wire::Scope,
 };
 use std::io::Read;
 
 /// Decode the response recorded by a unit and bind it to the request and process exit.
 pub fn unit_response(value: &Value, request_id: &str, exit: i32) -> Result<Response, String> {
     let response = Response::deserialize(value).map_err(|error| error.to_string())?;
-    chrono_harness::validate_response_protocol(
-        &response,
-        request_id,
-        exit,
-        chrono_harness::units::PROTOCOL,
-    )?;
+    if response.protocol != "chrono-ci-judge/v2"
+        || response.request_id != request_id
+        || response.results.is_empty()
+        || response.evidence.as_object().is_none_or(|e| e.is_empty())
+    {
+        return Err("empty or mismatched judge response".into());
+    }
+    let mut ids = BTreeSet::new();
+    for row in &response.results {
+        if row.id.is_empty() || row.cause.is_empty() || !ids.insert(&row.id) {
+            return Err("invalid/duplicate judge result".into());
+        }
+        match row.status {
+            Status::Passed if row.exit_code.is_some_and(|exit| exit != 0) => {
+                return Err("passed result has failing exit".into());
+            }
+            Status::Failed if row.exit_code == Some(0) => {
+                return Err("failed result has successful exit".into());
+            }
+            Status::NotRequired if row.exit_code.is_some() => {
+                return Err("not-required result must have null exit_code".into());
+            }
+            _ => (),
+        }
+    }
+    let failed = response
+        .results
+        .iter()
+        .any(|row| matches!(row.status, Status::Failed | Status::Blocked));
+    let unused = response
+        .results
+        .iter()
+        .all(|row| row.status == Status::NotRequired);
+    if failed != matches!(response.status, Status::Failed | Status::Blocked)
+        || unused != (response.status == Status::NotRequired)
+        || failed != (exit != 0)
+    {
+        return Err("judge exit/status/results disagreement".into());
+    }
     Ok(response)
 }
 
@@ -27,12 +61,14 @@ fn read(
     limit_name: &str,
     limit: u64,
 ) -> Result<Vec<u8>, String> {
-    chrono_harness::units::artifact_path(path)?;
+    units::artifact_path(path)?;
     if !policy.artifacts.iter().any(|a| path.starts_with(a)) {
         return Err("collection input is not a declared artifact".into());
     }
-    let _use = chrono_harness::retained_artifacts::retention::read_guard(root, path)?;
-    let resolved = chrono_harness::no_symlink_parents(root, path)?;
+    let storage = crate::storage::Storage::open(root)?;
+    storage.call::<()>(object!({"operation":"retain-read","path":path}))?;
+    let resolved: std::path::PathBuf =
+        storage.call(object!({"operation":"checked-path","path":path}))?;
     let meta = fs::symlink_metadata(&resolved).map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err(format!("collection input must be a regular file: {path}"));
@@ -67,7 +103,7 @@ fn process(p: &ProcessResult) -> Result<(), String> {
         || p.stderr_sha256 != sha256(&p.stderr_bytes)
         || p.stdout != String::from_utf8_lossy(&p.stdout_bytes)
         || p.stderr != String::from_utf8_lossy(&p.stderr_bytes)
-        || p.environment_digest != chrono_harness::wire::digest(&p.environment)?
+        || p.environment_digest != crate::codec::digest(&p.environment)?
     {
         return Err("unit original process bytes or identity mismatch".into());
     }
@@ -88,22 +124,21 @@ pub fn unit_originals(
     config: &CheckConfig,
     unit: &str,
     bytes: &[u8],
-    transport: Option<&chrono_harness::prepared::ArtifactTransport>,
-    mut read: impl FnMut(&chrono_harness::prepared::Original, u64) -> Result<Vec<u8>, String>,
+    transport: Option<&ArtifactTransport>,
+    mut read: impl FnMut(&Original, u64) -> Result<Vec<u8>, String>,
 ) -> Result<UnitOriginals, String> {
-    let mut read =
-        |o: &chrono_harness::prepared::Original, limit: u64| -> Result<Vec<u8>, String> {
-            chrono_harness::prepared::original_path(o, transport)?;
-            let raw = read(o, limit)?;
-            if raw.len() as u64 > limit {
-                return Err(format!("unit original digest/limit mismatch: {}", o.path));
-            }
-            Ok(raw)
-        };
+    let mut read = |o: &Original, limit: u64| -> Result<Vec<u8>, String> {
+        originals::original_path(root, o, transport)?;
+        let raw = read(o, limit)?;
+        if raw.len() as u64 > limit {
+            return Err(format!("unit original digest/limit mismatch: {}", o.path));
+        }
+        Ok(raw)
+    };
     let published = json(bytes)?;
-    let retained_streams = chrono_harness::units::reference_publication(config)?;
+    let retained_streams = units::reference_publication(root, config)?;
     let report_schema = if retained_streams {
-        chrono_harness::scoped_report::SCHEMA
+        "chrono-check-report/v2"
     } else {
         "chrono-check-report/v1"
     };
@@ -117,12 +152,12 @@ pub fn unit_originals(
         .unwrap_or_default();
     let mut retained_report_path = None;
     let (report, mut remaining) = if retained_streams {
-        let reference: chrono_harness::units::ReportReference =
+        let reference: ReportReference =
             serde_json::from_value(published).map_err(|e| e.to_string())?;
-        if reference.schema != chrono_harness::units::REPORT_REFERENCE {
+        if reference.schema != "chrono-check-reference/v1" {
             return Err("unit report reference schema mismatch".into());
         }
-        let path = chrono_harness::prepared::original_path(&reference.original, transport)?;
+        let path = originals::original_path(root, &reference.original, transport)?;
         let raw = read(&reference.original, limits.report_bytes)?;
         if sha256(&raw) != reference.original.sha256 {
             return Err(format!(
@@ -152,13 +187,12 @@ pub fn unit_originals(
         .get("preparation")
         .filter(|b| b.is_object())
     {
-        chrono_harness::prepared::validate_portable_binding_with_reader(
+        originals::with_originals::<()>(
             root,
-            binding,
-            transport,
+            object!({"operation":"validate-portable-binding","binding":binding,"transport":transport}),
             |o| read(o, 64 * 1024 * 1024),
         )?;
-        let prepared: chrono_harness::prepared::PreparedCheck =
+        let prepared: PreparedCheck =
             serde_json::from_value(binding["result"].clone()).map_err(|e| e.to_string())?;
         if prepared.scope != original.scope {
             return Err("original preparation scope differs from collected unit".into());
@@ -170,11 +204,15 @@ pub fn unit_originals(
         if report.get("response").is_some() {
             return Err("retained-stream report cannot contain a separate response".into());
         }
-        chrono_harness::scoped_report::restore_process(&report["judge"], |original| {
-            let raw = read(original, remaining)?;
-            remaining -= raw.len() as u64;
-            Ok(raw)
-        })?
+        originals::with_originals(
+            root,
+            object!({"operation":"restore-scoped-process","process":report["judge"],"limit":remaining}),
+            |original| {
+                let raw = read(original, remaining)?;
+                remaining -= raw.len() as u64;
+                Ok(raw)
+            },
+        )?
     } else {
         serde_json::from_value(report["judge"].clone()).map_err(|e| e.to_string())?
     };
@@ -186,16 +224,18 @@ pub fn unit_originals(
     })
 }
 
-fn expanded_receipt(row: &Value) -> Result<Receipt, String> {
+fn expanded_receipt(
+    session: &mut crate::runtime_session::Session,
+    row: &Value,
+) -> Result<Receipt, String> {
     if row.get("process").is_some() {
         return Err("unit execution has duplicate process evidence".into());
     }
-    let mut original = row["receipt"].clone();
+    let original = &row["receipt"];
     if original["process"].get("encoding").is_none() {
         return Err("unit execution process encoding required".into());
     }
-    original["process"] = chrono_harness::full::expand_process(&original["process"])?;
-    serde_json::from_value(original).map_err(|e| e.to_string())
+    session.call(object!({"operation":"expand-record","record":original}))
 }
 
 pub(super) fn collect(
@@ -208,19 +248,39 @@ pub(super) fn collect(
     methods: &BTreeMap<String, Vec<Method>>,
     declarations: &Value,
     environment_policy: &Value,
-) -> Result<Evaluation, String> {
-    let _read_scope = chrono_harness::retained_artifacts::retention::read_scope(&req.host_root)?;
+) -> Result<Response, String> {
+    crate::storage::Storage::with(&req.host_root, || {
+        collect_checked(
+            req,
+            reader,
+            manifest,
+            config,
+            snapshot,
+            selected,
+            methods,
+            declarations,
+            environment_policy,
+        )
+    })
+}
+
+fn collect_checked(
+    req: &Request,
+    reader: &Reader,
+    manifest: &str,
+    config: &CheckConfig,
+    snapshot: &Snapshot,
+    selected: &BTreeSet<String>,
+    methods: &BTreeMap<String, Vec<Method>>,
+    declarations: &Value,
+    environment_policy: &Value,
+) -> Result<Response, String> {
     let p = &snapshot.policy;
-    let source_io = super::source_binding::CandidateIo {
-        reader,
-        request: req,
-        tree: &snapshot.tree,
-    };
     let units = p
         .units
         .as_ref()
         .ok_or("collection requires registered units")?;
-    let required = units::required(units, selected);
+    let required = units::required(&req.host_root, units, selected)?;
     let limits = p.collection_limits.clone().unwrap_or_default();
     let manifest_bytes = read(
         &req.host_root,
@@ -265,7 +325,7 @@ pub(super) fn collect(
     }];
     let mut verified = vec![];
     let mut retained_originals = Vec::new();
-    let retained_streams = chrono_harness::units::reference_publication(config)?;
+    let retained_streams = units::reference_publication(&req.host_root, config)?;
     for input in &inputs.reports {
         let bytes = read(
             &req.host_root,
@@ -291,7 +351,7 @@ pub(super) fn collect(
             &bytes,
             input.artifacts.as_ref(),
             |o, limit| {
-                let path = chrono_harness::prepared::original_path(o, input.artifacts.as_ref())?;
+                let path = originals::original_path(&req.host_root, o, input.artifacts.as_ref())?;
                 read(
                     &req.host_root,
                     &path,
@@ -310,7 +370,7 @@ pub(super) fn collect(
             .get("preparation")
             .filter(|b| b.is_object())
         {
-            let prepared: chrono_harness::prepared::PreparedCheck =
+            let prepared: PreparedCheck =
                 serde_json::from_value(binding["result"].clone()).map_err(|e| e.to_string())?;
             if prepared.base != req.base
                 || prepared.candidate != req.candidate
@@ -328,7 +388,7 @@ pub(super) fn collect(
             &report["response"]
         };
         let response = unit_response(response_value, &original.request_id, producer.exit_code)?;
-        if original.protocol != chrono_harness::units::PROTOCOL
+        if original.protocol != units::SCOPED_PROTOCOL
             || original.scope
                 != Some(Scope::Unit {
                     unit: input.unit.clone(),
@@ -351,7 +411,7 @@ pub(super) fn collect(
                 input.unit
             ));
         }
-        let candidates = chrono_harness::program_candidates(
+        let candidates = crate::files::program_candidates(
             &original.host_root,
             &config.judge.program,
             Some(
@@ -369,7 +429,7 @@ pub(super) fn collect(
         if !candidates.contains(&producer.executable) || producer.argv != expected_argv {
             return Err("unit judge command differs from profile".into());
         }
-        if response.status != chrono_harness::Status::Passed {
+        if response.status != Status::Passed {
             results.push(CheckResult {
                 id: format!("ci.unit.{}", input.unit),
                 status: Status::Failed,
@@ -382,8 +442,8 @@ pub(super) fn collect(
             verified.push(object!({"unit":input.unit,"path":input.path,"sha256":input.sha256,"status":"failed-original-retained"}));
             continue;
         }
-        let unit_results: Vec<CheckResult> = response.results.into_iter().map(Into::into).collect();
-        let owned = units::selection(units, selected, &input.unit)?;
+        let unit_results = response.results;
+        let owned = units::selection(&req.host_root, units, selected, &input.unit)?;
         let e = &response.evidence;
         if e["scope"] != config.schema
             || e["base"] != object!(req.base)
@@ -407,7 +467,7 @@ pub(super) fn collect(
             &routes,
             &plan,
             &super::scoped_binding(&original),
-            &super::report_path(&original, config)?,
+            &super::report_path(&req.host_root, &original, config)?,
         )?;
         if plan.root != original.host_root {
             return Err("unit plan binding mismatch".into());
@@ -494,7 +554,12 @@ pub(super) fn collect(
             .map(|o| o.method.operation.clone())
             .collect();
         let expected_ids = verified_collection::borrow_texts(&expected_ops);
-        let proof_invocations = source_binding::invocations(&operations);
+        let binding = source_binding::Binding::prepare(
+            reader,
+            &req.host_root,
+            &operations,
+            &snapshot.filemap,
+        )?;
         let not_required_ids = verified_collection::borrow_texts(&not_required);
         let executed = e["executed"].as_array().ok_or("unit executions missing")?;
         if e["operations"] != object!(expected_ops) || executed.len() != operations.len() {
@@ -503,7 +568,14 @@ pub(super) fn collect(
         if e["execution_evidence_schema"] != "chrono-ci-executions/v2" {
             return Err("unsupported or missing unit execution evidence schema".into());
         }
-        let receipts: Vec<_> = executed.iter().map(expanded_receipt).collect();
+        let program = crate::observed::installed(&req.host_root)?;
+        let mut evidence =
+            crate::runtime_session::Session::open(&req.host_root, &program, "judge-evidence-v1")?;
+        let receipts: Vec<_> = executed
+            .iter()
+            .map(|row| expanded_receipt(&mut evidence, row))
+            .collect();
+        evidence.close()?;
         let supplied = operations
             .iter()
             .zip(&receipts)
@@ -521,13 +593,10 @@ pub(super) fn collect(
             if let Some(error) = checks.remove(&operation.method.operation).flatten() {
                 return Err(error);
             }
-            source_binding::bind_output(
+            binding.check(
                 "passed",
                 operation.method.operation.as_str(),
-                &proof_invocations,
                 Some(&receipt),
-                &snapshot.source_registry,
-                &source_io,
             )?;
             if row["operation"] != operation.method.operation
                 || receipt.process.exit_code != 0
@@ -561,7 +630,7 @@ pub(super) fn collect(
             exit_code: None,
         });
     }
-    Ok(Evaluation {
+    Ok(Response {
         protocol: units::scope_protocol(req).into(),
         request_id: req.request_id.clone(),
         status: verified_collection::response_status(&results),

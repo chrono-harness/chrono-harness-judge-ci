@@ -5,10 +5,6 @@ use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 pub mod result_types;
 use result_types::{CheckResult, Status};
 
-#[cfg(verus_keep_ghost)]
-#[path = "source_binding.rs"]
-mod source_binding;
-
 verus! {
 
 /// A plan with missing inputs stays blocked before any route query.

@@ -1,8 +1,10 @@
 //! JSON interface used by native CI providers in the checked host.
 use super::*;
-use chrono_harness::{
-    prepared::{ArtifactTransport, Original, original_path},
-    units::{FullManifest, FullReportInput, Scope, read_bounded},
+use crate::{
+    originals::{
+        ArtifactTransport, FullManifest, FullReportInput, Original, original_path, read_bounded,
+    },
+    wire::{Scope, Unit},
 };
 
 #[derive(Deserialize)]
@@ -50,7 +52,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             candidate,
             initial,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
+            crate::files::no_symlink_parents(root, &profile)?;
             scheduling_requirements(root, &profile, base, candidate, initial)
         }
         Query::FullSchedule {
@@ -58,7 +60,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             base,
             candidate,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
+            crate::files::no_symlink_parents(root, &profile)?;
             full_scheduling_requirements(root, &profile, &base, &candidate)
         }
         Query::Collect {
@@ -68,8 +70,8 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             candidate,
             initial,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
-            chrono_harness::units::artifact_path(&manifest)?;
+            crate::files::no_symlink_parents(root, &profile)?;
+            units::artifact_path(&manifest)?;
             collection_requirements(root, &profile, &manifest, base, candidate, initial)
         }
         Query::FullCollect {
@@ -79,12 +81,16 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             base,
             candidate,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
-            chrono_harness::no_symlink_parents(root, &context)?;
-            let config = chrono_harness::load_selected_config(root, &profile)?;
-            let block = chrono_harness::units::full_execution_units(&config)?
-                .ok_or("full provider requires registered full units")?;
-            let registered: BTreeMap<String, chrono_harness::units::Unit> =
+            crate::files::no_symlink_parents(root, &profile)?;
+            crate::files::no_symlink_parents(root, &context)?;
+            let config = crate::runtime_session::Session::selected_config(root, &profile)?;
+            let block: Option<Value> = crate::runtime_session::Session::query(
+                root,
+                "judge-evidence-v1",
+                object!({"operation":"full-execution-units","profile":config}),
+            )?;
+            let block = block.ok_or("full provider requires registered full units")?;
+            let registered: BTreeMap<String, Unit> =
                 serde_json::from_value(block["units"].clone()).map_err(|e| e.to_string())?;
             let limit = block["collection_limits"]["report_bytes"]
                 .as_u64()
@@ -126,13 +132,13 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             report,
             transport,
         } => {
-            let raw = fs::read(chrono_harness::no_symlink_parents(root, &profile)?)
+            let raw = fs::read(crate::files::no_symlink_parents(root, &profile)?)
                 .map_err(|e| e.to_string())?;
             if sha256(&raw) != profile_sha256 {
                 return Err("collection check profile changed".into());
             }
             let config: CheckConfig = decode(&raw)?;
-            let registered: BTreeMap<String, chrono_harness::units::Unit> =
+            let registered: BTreeMap<String, Unit> =
                 serde_json::from_value(config.policy["units"].clone())
                     .map_err(|e| e.to_string())?;
             if registered
@@ -150,7 +156,11 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
                 .map_err(|e| e.to_string())?
                 .unwrap_or_default();
             let mapped = |original: &Original, limit| {
-                read_bounded(root, &original_path(original, Some(&transport))?, limit)
+                read_bounded(
+                    root,
+                    &original_path(root, original, Some(&transport))?,
+                    limit,
+                )
             };
             let bytes = mapped(&report, limit.report_bytes)?;
             if sha256(&bytes) != report.sha256 {

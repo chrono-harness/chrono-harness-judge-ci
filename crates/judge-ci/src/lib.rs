@@ -1,15 +1,28 @@
 #![allow(unexpected_cfgs)]
 // Explicit CI policy: fixed Git snapshots, registered old/new impact graph, candidate operations.
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{
-    CheckConfig, PROTOCOL, Request, Response, decode, json, relative_path, sha256,
+use crate::wire::{CheckConfig, PROTOCOL, Request, Scope, Unit};
+#[cfg(not(verus_keep_ghost))]
+use crate::{
+    codec::{decode, json},
+    files::{relative_path, sha256},
 };
+#[cfg(not(verus_keep_ghost))]
+pub mod codec;
 #[cfg(not(verus_keep_ghost))]
 pub mod consumption;
 #[cfg(not(verus_keep_ghost))]
 mod diagnostic_session;
 #[cfg(not(verus_keep_ghost))]
+pub mod wire;
+#[cfg(not(verus_keep_ghost))]
+pub use diagnostic_session::cli;
+#[cfg(not(verus_keep_ghost))]
+mod files;
+#[cfg(not(verus_keep_ghost))]
 pub mod impact_query;
+#[cfg(not(verus_keep_ghost))]
+pub mod observed;
 #[cfg(not(verus_keep_ghost))]
 mod project_execution;
 #[cfg(not(verus_keep_ghost))]
@@ -19,7 +32,11 @@ mod route_query;
 #[cfg(not(verus_keep_ghost))]
 mod route_wire;
 #[cfg(not(verus_keep_ghost))]
+mod runtime_session;
+#[cfg(not(verus_keep_ghost))]
 mod source_observations;
+#[cfg(not(verus_keep_ghost))]
+mod storage;
 #[cfg(not(verus_keep_ghost))]
 mod trace_source;
 pub mod verified_consumption;
@@ -35,16 +52,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 #[cfg(not(verus_keep_ghost))]
 use std::path::Path;
-#[cfg(not(verus_keep_ghost))]
 mod collect;
 #[cfg(not(verus_keep_ghost))]
 mod full_registration;
+#[cfg(not(verus_keep_ghost))]
+pub mod originals;
 #[cfg(not(verus_keep_ghost))]
 pub mod requirements;
 #[cfg(not(verus_keep_ghost))]
 mod scheduling_git;
 #[cfg(not(verus_keep_ghost))]
 pub use collect::{UnitOriginals, unit_originals, unit_response};
+#[cfg(not(verus_keep_ghost))]
 mod source_binding;
 #[cfg(not(verus_keep_ghost))]
 mod units;
@@ -55,25 +74,14 @@ pub mod verified_collection;
 use verified_collection::result_types::{CheckResult, Status};
 
 #[cfg(not(verus_keep_ghost))]
-struct Evaluation {
-    protocol: String,
-    request_id: String,
-    status: Status,
-    results: Vec<CheckResult>,
-    evidence: Value,
-}
-
-#[cfg(not(verus_keep_ghost))]
-impl From<Evaluation> for Response {
-    fn from(value: Evaluation) -> Self {
-        Self {
-            protocol: value.protocol,
-            request_id: value.request_id,
-            status: value.status.into(),
-            results: value.results.into_iter().map(Into::into).collect(),
-            evidence: value.evidence,
-        }
-    }
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Response {
+    pub protocol: String,
+    pub request_id: String,
+    pub status: Status,
+    pub results: Vec<CheckResult>,
+    pub evidence: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -114,7 +122,7 @@ pub struct Policy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_limits: Option<CollectionLimits>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub units: Option<BTreeMap<String, chrono_harness::units::Unit>>,
+    pub units: Option<BTreeMap<String, Unit>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_operations: Option<BTreeMap<String, Vec<String>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,7 +154,6 @@ struct Snapshot {
     owner_nodes: BTreeMap<String, String>,
     test_owners: BTreeMap<String, String>,
     files: BTreeMap<String, Value>,
-    source_registry: Result<chrono_harness::verified_verifier::sources::SourceRegistry, String>,
     projects: BTreeMap<String, Value>,
     operations: BTreeMap<
         String,
@@ -154,7 +161,7 @@ struct Snapshot {
             String,
             String,
             Vec<String>,
-            Option<chrono_harness::verified_verifier::OutputContract>,
+            Option<route_wire::OutputContract>,
         ),
     >,
     edges: BTreeSet<Edge>,
@@ -166,7 +173,7 @@ struct Snapshot {
     startup: Option<consumption::StartupDeclarations>,
 }
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::facts::{Reader, utf8};
+use scheduling_git::Reader;
 #[cfg(not(verus_keep_ghost))]
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str, String> {
     v.get(k)
@@ -193,14 +200,23 @@ fn strings(v: &Value) -> Result<Vec<String>, String> {
 }
 #[cfg(not(verus_keep_ghost))]
 fn id(s: &str) -> Result<(), String> {
-    if !chrono_harness::verified_identifiers::valid_id(s.as_bytes()) {
+    if s.is_empty()
+        || !s
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
         return Err(format!("invalid ID {s:?}"));
     }
     Ok(())
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn full_oid(s: &str) -> Result<(), String> {
-    if !chrono_harness::verified_identifiers::valid_oid(s.as_bytes()) {
+    if !matches!(s.len(), 40 | 64)
+        || !s
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || s.bytes().all(|byte| byte == b'0')
+    {
         return Err(format!("expected full nonzero lowercase OID: {s}"));
     }
     Ok(())
@@ -226,7 +242,6 @@ fn tree(
         .tree(root, oid)?
         .into_iter()
         .map(|(path, entry)| {
-            let path = path.text;
             if entry.kind != "blob"
                 || !matches!(entry.mode.as_str(), "100644" | "100755" | "120000")
             {
@@ -240,8 +255,8 @@ fn tree(
         .collect()
 }
 #[cfg(not(verus_keep_ghost))]
-fn policy(c: &CheckConfig) -> Result<Policy, String> {
-    chrono_harness::units::reference_publication(c)?;
+fn policy(root: &Path, c: &CheckConfig) -> Result<Policy, String> {
+    units::reference_publication(root, c)?;
     if !matches!(
         c.schema.as_str(),
         "chrono-ci-check/v1" | "chrono-ci-check/v2" | "chrono-ci-check/v3"
@@ -301,7 +316,7 @@ fn policy(c: &CheckConfig) -> Result<Policy, String> {
 }
 #[cfg(not(verus_keep_ghost))]
 struct EndpointTools {
-    registration: Option<chrono_harness::facts::RegistrySnapshot>,
+    registration: Option<scheduling_git::Snapshot>,
     tools: BTreeMap<String, Value>,
 }
 
@@ -545,9 +560,15 @@ fn snapshot(
                 .ok_or("actions object required")?
                 .values()
             {
-                let action: chrono_harness::verified_verifier::RegisteredAction =
+                let action: route_wire::RegisteredAction =
                     serde_json::from_value(a.clone()).map_err(|e| e.to_string())?;
-                chrono_harness::verified_verifier::validate_contract(&action.output_contract)?;
+                if let Some(contract) = &action.output_contract {
+                    crate::runtime_session::Session::one::<()>(
+                        root,
+                        "compiler-output-v1",
+                        &object!({"operation":"validate-contract","contract":contract}),
+                    )?;
+                }
                 let operation = action.operation.as_str();
                 id(operation)?;
                 let tool = action.tool.as_str();
@@ -632,7 +653,9 @@ fn snapshot(
         match (mode.as_str(), f.get("symlink")) {
             ("120000", Some(Value::String(target))) => {
                 relative_path(target)?;
-                if utf8(at(reader, root, oid, path)?)? != *target {
+                if String::from_utf8(at(reader, root, oid, path)?).map_err(|e| e.to_string())?
+                    != *target
+                {
                     return Err(format!("symlink target mismatch: {path}"));
                 }
                 let dest = Path::new(path)
@@ -700,12 +723,11 @@ fn snapshot(
         .map_err(|error| error.to_string())?;
     let snapshot = Snapshot {
         registry: pr,
-        filemap: fm.clone(),
+        filemap: fm,
         tools,
         owner_nodes,
         test_owners,
         files,
-        source_registry: serde_json::from_value(fm).map_err(|e| e.to_string()),
         projects,
         operations: ops,
         edges,
@@ -716,29 +738,42 @@ fn snapshot(
         scheduling,
         startup,
     };
-    units::assignments(&snapshot)?;
     Ok(snapshot)
 }
 #[cfg(not(verus_keep_ghost))]
 fn clean(reader: &Reader, root: &Path, candidate: &str, p: &Policy) -> Result<(), String> {
-    if utf8(reader.git(root, &["rev-parse", "HEAD"])?)?.trim() != candidate {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Checkout {
+        head: String,
+        tracked: Vec<String>,
+        untracked: Vec<String>,
+        index_flags: Vec<Value>,
+    }
+    #[derive(Deserialize)]
+    struct IndexIssue {
+        path: String,
+        reason: String,
+    }
+    let checkout: Checkout = reader.checkout(root, &p.artifacts)?;
+    if checkout.head != candidate {
         return Err("checkout HEAD does not equal candidate".into());
     }
-    let flags = reader.index_flags(root)?;
-    if let Some((entry, reason)) =
-        chrono_harness::verified_status::first_unsupported_index_flag(&flags)
-    {
+    let issue: Option<IndexIssue> = crate::runtime_session::Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"checkout-index-issue","flags":checkout.index_flags}),
+    )?;
+    if let Some(issue) = issue {
         return Err(format!(
             "unsupported index flags ({}): {}",
-            reason.message(),
-            entry.path
+            issue.reason, issue.path
         ));
     }
-    if !reader.tracked_changes(root, candidate)?.is_empty() {
+    if !checkout.tracked.is_empty() {
         return Err("dirty tracked candidate inputs/index".into());
     }
-    let artifacts: Vec<_> = p.artifacts.iter().map(String::as_str).collect();
-    for path in reader.untracked_excluding(root, &artifacts)? {
+    for path in checkout.untracked {
         if !p.artifacts.iter().any(|a| path.starts_with(a)) {
             return Err(format!("untracked nonartifact input: {path}"));
         }
@@ -951,7 +986,7 @@ fn ci_impact(
 #[cfg(not(verus_keep_ghost))]
 pub fn judge(req: &Request) -> Response {
     #[cfg(unix)]
-    let sink = chrono_harness::NativeOutput::new(std::io::stderr());
+    let sink = diagnostic_session::Stderr;
     #[cfg(not(unix))]
     let sink = std::io::stderr();
     judge_with_diagnostic_sink(req, sink)
@@ -964,7 +999,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
     req: &Request,
     sink: W,
 ) -> Response {
-    let mut reader = Reader::legacy();
+    let mut reader = Reader::default();
     let mut evidence = source_observations::GitEvidence::default();
     let mut scope = "chrono-ci-check/v1".to_owned();
     let mut diagnostic_errors = Vec::new();
@@ -1027,7 +1062,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
         Ok(r) => r,
         Err(e) => {
             let (status, results) = verified_collection::inventory_failure(e);
-            Evaluation {
+            Response {
                 protocol: units::scope_protocol(req).into(),
                 request_id: req.request_id.clone(),
                 status,
@@ -1036,7 +1071,13 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
             }
         }
     };
-    let facts = evidence.finish(reader.observation());
+    let facts = match reader.finish() {
+        Ok(facts) => evidence.finish(facts),
+        Err(error) => {
+            diagnostic_errors.push(diagnostic_session::failure("E_GIT_FACTS", error));
+            evidence.opening
+        }
+    };
     if !facts.is_null() {
         response.evidence["git_facts"] = facts;
     }
@@ -1049,7 +1090,7 @@ pub fn judge_with_diagnostic_sink<W: std::io::Write + Send + 'static>(
         response.status = verified_collection::diagnostic_failure(&mut response.results);
         response.evidence["diagnostic_errors"] = object!(diagnostic_errors);
     }
-    response.into()
+    response
 }
 // Shared DELTA planning. Collection acquisition consumes requirements, never an admission result.
 #[cfg(not(verus_keep_ghost))]
@@ -1066,7 +1107,7 @@ struct Inventory {
     removed: BTreeMap<String, Option<String>>,
     retirement_context: Value,
     conversion: Value,
-    reused: BTreeMap<String, chrono_harness::observation::Tool>,
+    reused: BTreeMap<String, crate::route_wire::Tool>,
     environment: BTreeMap<String, String>,
     environment_policy: Value,
     declarations: Value,
@@ -1084,8 +1125,8 @@ struct Inventory {
 pub fn full_collection_requirements_with_inputs(
     root: &Path,
     profile: &str,
-    prepared: &chrono_harness::prepared::PreparedCheck,
-    originals: &dyn Fn(&[String]) -> Result<chrono_harness::units::FullManifest, String>,
+    prepared: &crate::originals::PreparedCheck,
+    originals: &dyn Fn(&[String]) -> Result<crate::originals::FullManifest, String>,
 ) -> Result<Value, String> {
     let context = prepared
         .context
@@ -1109,51 +1150,57 @@ fn full_collection_at(
     base: &str,
     candidate: &str,
     context: &Path,
-    scope: Option<chrono_harness::units::Scope>,
-    originals: &dyn Fn(&[String]) -> Result<chrono_harness::units::FullManifest, String>,
+    scope: Option<Scope>,
+    originals: &dyn Fn(&[String]) -> Result<crate::originals::FullManifest, String>,
 ) -> Result<Value, String> {
-    let (mut req, _, reader, cfg) = chrono_harness::full::prepare_request(
+    let (reader, mut header) = Reader::open(
         root,
-        profile,
-        base,
+        Some(base),
         candidate,
-        context,
-        Value::Null,
-        scope,
-        None,
+        object!({"mode":"prepared-collection","config":profile,"base":base,"candidate":candidate,
+            "context":context,"scope":scope,"judge":"routes"}),
     )?;
-    req.judge_id = "routes".into();
+    let original = header["request"].take();
+    let req = full_registration::Coordinates::deserialize(&original).map_err(|e| e.to_string())?;
+    let cfg = header["config"].take();
     let result = (|| {
-        // prepare_request observes the calling executable.
-        // Bootstrap instead carries the independently validated registered runner;
-        // no retained report can assign an executable identity to this request.
         let declared = cfg["runner"]["path"]
             .as_str()
             .ok_or("registered runner path")?;
         relative_path(declared)?;
-        let link = Path::new(declared);
-        if let Some(parent) = link
+        if let Some(parent) = Path::new(declared)
             .parent()
             .and_then(Path::to_str)
             .filter(|s| !s.is_empty())
         {
-            chrono_harness::no_symlink_parents(root, parent)?;
+            crate::files::no_symlink_parents(root, parent)?;
         }
-        let runner = fs::canonicalize(root.join(link)).map_err(|e| e.to_string())?;
-        let digest = chrono_harness::file_identity(&runner)?.0;
-        if cfg["runner"]["sha256"] != digest || cfg["runner"]["version"] != req.runner.version {
+        let runner = fs::canonicalize(root.join(declared)).map_err(|e| e.to_string())?;
+        if runner != Path::new(&req.runner.path)
+            || cfg["runner"]["sha256"] != req.runner.sha256
+            || cfg["runner"]["version"] != req.runner.version
+            || crate::files::file_identity(&runner)?.0 != req.runner.sha256
+        {
             return Err("E_EXECUTABLE_BINDING: registered collection runner differs".into());
         }
-        req.runner.path = runner.to_str().ok_or("runner path UTF8")?.into();
-        req.runner.sha256 = digest;
-        req.seal()?;
+        crate::runtime_session::Session::query::<()>(
+            root,
+            "judge-evidence-v1",
+            object!({"operation":"validate-request","request":original}),
+        )?;
         let query = Query::full(root, &cfg)?;
         let mut evidence = source_observations::GitEvidence::default();
-        let (plans, migration) =
-            full_registration::collection(&req, &reader, &query, &mut evidence, originals)?;
+        let (plans, migration) = full_registration::collection(
+            &req,
+            &original,
+            &reader,
+            &query,
+            &mut evidence,
+            originals,
+        )?;
         let old = &plans.previous;
         let r = &plans.candidate;
-        let mut collection = object!({"request":req,"migration":migration});
+        let mut collection = object!({"request":original,"migration":migration});
         let impact: impact_query::Obligations =
             query.read("chrono-judge-filemap", "collection-tests-v1", &collection)?;
         impact.require_valid("blocked full obligations")?;
@@ -1161,6 +1208,7 @@ fn full_collection_at(
         collection["retired_tests"] = object!(impact.retired_tests);
         let selected = query.read("chrono-judge-routes", "collected-selection-v1", &collection)?;
         let routes = route_query::full_operations(
+            root,
             &query,
             &r.filemap,
             &r.projects,
@@ -1168,18 +1216,20 @@ fn full_collection_at(
             &selected,
             None,
         )?;
-        let facts = reader.observation();
+        let facts = reader.observation()?;
         route_query::source_plan(
             &query,
             "chrono-judge-routes",
             profile,
             Some(route_query::SourceEndpoint::registered(
+                root,
                 &req.base.commit,
                 &old.config,
                 &old.filemap,
                 &old.projects,
             )?),
             route_query::SourceEndpoint::registered(
+                root,
                 &req.candidate.commit,
                 &r.config,
                 &r.filemap,
@@ -1195,10 +1245,10 @@ fn full_collection_at(
         let units = serde_json::from_value(r.config["execution_units"]["units"].clone())
             .map_err(|e| e.to_string())?;
         Ok(
-            object!({"required_units":chrono_harness::units::required(&units,&selected),"global_selected":selected,"git_facts":git_facts,"filemap_git_facts":impact.git_facts}),
+            object!({"required_units":units::required(root, &units, &selected)?,"global_selected":selected,"git_facts":git_facts,"filemap_git_facts":impact.git_facts}),
         )
     })();
-    fs::remove_dir_all(&req.base.root).map_err(|e| e.to_string())?;
+    reader.close()?;
     result
 }
 /// Full scheduling reads complete trees and registry/semantic blobs, never exports host sources,
@@ -1245,9 +1295,14 @@ pub fn full_scheduling_requirements(
     let selected = query.read("chrono-judge-routes", "global-selection", &object!({
         "config":profile,"base":previous,"candidate":candidate_documents,"tests":impact.tests,"retired_tests":impact.retired_tests
     }))?;
-    let block = chrono_harness::units::full_execution_units(&current.config)?
-        .ok_or("full scheduling units missing")?;
+    let block: Option<Value> = crate::runtime_session::Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"full-execution-units","profile":current.config}),
+    )?;
+    let block = block.ok_or("full scheduling units missing")?;
     let routes = route_query::full_operations(
+        root,
         &query,
         &current.filemap,
         &current.projects,
@@ -1260,12 +1315,14 @@ pub fn full_scheduling_requirements(
         "chrono-judge-routes",
         profile,
         Some(route_query::SourceEndpoint::registered(
+            root,
             base,
             &old.config,
             &old.filemap,
             &old.projects,
         )?),
         route_query::SourceEndpoint::registered(
+            root,
             candidate,
             &current.config,
             &current.filemap,
@@ -1305,7 +1362,7 @@ pub fn scheduling_requirements(
         scope: None,
         observations: object!({}),
     };
-    let mut reader = Reader::legacy();
+    let mut reader = Reader::default();
     let mut evidence = source_observations::GitEvidence::default();
     let i = inventory(
         &req,
@@ -1319,8 +1376,8 @@ pub fn scheduling_requirements(
         return Err(format!("blocked global obligations: {:?}", i.blocked));
     }
     Ok(
-        object!({"required_units":units::required(i.p.units.as_ref().ok_or("scheduling requires registered units")?, &i.global_selected),
-        "global_selected":i.global_selected,"changed_paths":i.paths,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.observation())}),
+        object!({"required_units":units::required(root, i.p.units.as_ref().ok_or("scheduling requires registered units")?, &i.global_selected)?,
+        "global_selected":i.global_selected,"changed_paths":i.paths,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.finish()?)}),
     )
 }
 
@@ -1334,7 +1391,7 @@ pub fn collection_requirements(
     initial: bool,
 ) -> Result<Value, String> {
     let req = Request {
-        protocol: chrono_harness::units::PROTOCOL.into(),
+        protocol: units::SCOPED_PROTOCOL.into(),
         request_id: "collection-requirements".into(),
         host_root: root.into(),
         config_path: profile.into(),
@@ -1342,12 +1399,12 @@ pub fn collection_requirements(
         base,
         candidate,
         initial,
-        scope: Some(chrono_harness::units::Scope::Collect {
+        scope: Some(Scope::Collect {
             manifest: manifest.into(),
         }),
         observations: object!({}),
     };
-    let mut reader = Reader::legacy();
+    let mut reader = Reader::default();
     let mut evidence = source_observations::GitEvidence::default();
     let i = inventory(
         &req,
@@ -1361,14 +1418,15 @@ pub fn collection_requirements(
         return Err(format!("blocked global obligations: {:?}", i.blocked));
     }
     let required = units::required(
+        root,
         i.p.units
             .as_ref()
             .ok_or("collection requires registered units")?,
         &i.global_selected,
-    );
+    )?;
     clean(&reader, root, &req.candidate, &i.p)?;
     Ok(
-        object!({"required_units":required,"global_selected":i.global_selected,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.observation())}),
+        object!({"required_units":required,"global_selected":i.global_selected,"selection_explanation":i.selection_explanation,"git_facts":evidence.finish(reader.finish()?)}),
     )
 }
 
@@ -1399,7 +1457,7 @@ impl Profile {
         {
             return Err("unsupported selection_evidence representation".into());
         }
-        let policy = policy(&config)?;
+        let policy = policy(&req.host_root, &config)?;
         Ok(Self {
             bytes,
             config,
@@ -1496,7 +1554,7 @@ struct FullPlanning {
 #[serde(deny_unknown_fields)]
 struct TransitionData {
     tools: Value,
-    reused: BTreeMap<String, chrono_harness::observation::Tool>,
+    reused: BTreeMap<String, crate::route_wire::Tool>,
     conversion: Value,
     retirements: BTreeMap<String, TestRetirement>,
 }
@@ -1527,15 +1585,27 @@ fn inventory_profile(
     } = profile;
     *scope = config.schema.clone();
     if let Some(scope) = &req.scope {
-        scope.report_path(&config)?;
+        units::report_path(root, &config, scope)?;
     }
     full_oid(&req.candidate)?;
-    if let Some(path) = &p.facts_config {
-        *reader = Reader::for_config_observed(root, path).map_err(|failure| {
-            evidence.opening = failure.observation;
-            failure.message
-        })?;
-        if !reader.is_bound() {
+    let (opened, header) = Reader::open(
+        root, req.base.as_deref(), &req.candidate,
+        object!({"mode":"scoped","config":p.facts_config,"base":req.base,"candidate":req.candidate}),
+    ).map_err(|error| {
+        if let Ok(failure) = serde_json::from_str::<Value>(&error) {
+            if let Some(message) = failure["message"].as_str() {
+                evidence.opening = failure["git_facts"].clone();
+                return message.to_owned();
+            }
+        }
+        error
+    })?;
+    *reader = opened;
+    let bound = header["bound"]
+        .as_bool()
+        .ok_or("missing Git reader binding")?;
+    if p.facts_config.is_some() {
+        if !bound {
             return Err("scoped v2 requires a bound full-v3 facts_config".into());
         }
         reader.verify_config(root, &req.candidate)?;
@@ -1568,7 +1638,7 @@ fn inventory_profile(
         let base_tree = tree(reader, root, base)?;
         let op = if base_tree.contains_key(&req.config_path) {
             let c: CheckConfig = decode(&at(reader, root, base, &req.config_path)?)?;
-            let op = policy(&c)?;
+            let op = policy(root, &c)?;
             previous = c.schema;
             if op.filemap != p.filemap || op.projects != p.projects {
                 return Err("registry path migration unsupported".into());
@@ -1609,6 +1679,9 @@ fn inventory_profile(
         program,
         false,
     )?;
+    for endpoint in old.iter().chain(std::iter::once(&new)) {
+        units::assignments(root, &query, &new.tools, endpoint)?;
+    }
     let (paths, mut selected, mut selection_explanation, affected) =
         ci_impact(&query, program, root, old.as_ref(), &new)?;
     let consumption = consumption::check_scoped(
@@ -1649,13 +1722,13 @@ fn inventory_profile(
     let mut environment: BTreeMap<String, String> = std::env::vars().collect();
     environment.extend(p.environment.clone());
     #[cfg(unix)]
-    environment.remove(chrono_harness::process_fds::ENV);
+    environment.remove("CHRONO_PROCESS_FDS");
     let mut environment_policy = object!({"values":p.environment,"inherit":null});
     let mut declarations = object!(new.tools.values().cloned().collect::<Vec<_>>());
     if req.base.is_none() {
         if let Some(config_path) = &p.registration_config {
-            let values = reader.registry_values(root, &req.candidate, config_path)?;
-            let identity = chrono_harness::facts::registry_identity(&values, config_path)?;
+            let identity = reader.registry_snapshot(root, &req.candidate, config_path)?;
+            let values = identity.values;
             let cfg = &values[&identity.effective_path];
             if cfg["schema_version"] == 4 {
                 check_registration_documents(
@@ -1665,39 +1738,11 @@ fn inventory_profile(
                     &values,
                     &identity.effective_path,
                 )?;
-                let c = chrono_harness::prepared::declaration(cfg)?;
-                let mut argv = c.argv;
-                if let Some(scope) = &req.scope {
-                    match scope {
-                        chrono_harness::units::Scope::Unit { unit } => {
-                            argv.extend(["--unit".into(), unit.clone()])
-                        }
-                        chrono_harness::units::Scope::Collect { .. } => {
-                            argv.push("--collect".into())
-                        }
-                    }
-                }
-                if admit_entry {
-                    chrono_harness::resolve_invocation(
-                        root,
-                        &req.observations["entry"],
-                        &argv,
-                        &object!({}),
-                    )?;
-                }
-                if admit_entry {
-                    chrono_harness::prepared::validate_binding(
-                        root,
-                        cfg,
-                        &req.config_path,
-                        None,
-                        &req.candidate,
-                        req.initial,
-                        &req.scope,
-                        None,
-                        &req.observations["preparation"],
-                    )?;
-                }
+                crate::runtime_session::Session::one::<()>(
+                    root,
+                    "check-invocation-v1",
+                    &object!({"mode":"scoped-request","request":req,"config":cfg,"admit_entry":admit_entry}),
+                )?;
                 declarations = cfg["tools"].clone();
                 environment.clear();
                 for key in cfg["environment"]["inherit"]
@@ -1724,10 +1769,10 @@ fn inventory_profile(
         }
     }
     if let (Some(config_path), Some(base)) = (&p.registration_config, &req.base) {
-        let a = reader.registry_values(root, base, config_path)?;
-        let b = reader.registry_values(root, &req.candidate, config_path)?;
-        let _a_identity = chrono_harness::facts::registry_identity(&a, config_path)?;
-        let b_identity = chrono_harness::facts::registry_identity(&b, config_path)?;
+        let previous = reader.registry_snapshot(root, base, config_path)?;
+        let a = previous.values;
+        let b_identity = reader.registry_snapshot(root, &req.candidate, config_path)?;
+        let b = b_identity.values;
         let b_config = b
             .get(&b_identity.effective_path)
             .ok_or("missing effective candidate registration config")?;
@@ -1740,44 +1785,11 @@ fn inventory_profile(
                 &b_identity.effective_path,
             )?;
         }
-        let mut template: Vec<String> =
-            serde_json::from_value(b_config["canonical_check"]["argv"].clone())
-                .map_err(|e| e.to_string())?;
-        if let Some(scope) = &req.scope {
-            if b_config["schema_version"] == 4 {
-                match scope {
-                    chrono_harness::units::Scope::Unit { unit } => {
-                        template.extend(["--unit".into(), unit.clone()])
-                    }
-                    chrono_harness::units::Scope::Collect { .. } => {
-                        template.push("--collect".into())
-                    }
-                }
-            } else {
-                template.extend(scope.argv());
-            }
-        }
-        if admit_entry {
-            chrono_harness::resolve_invocation(
-                root,
-                &req.observations["entry"],
-                &template,
-                &object!({"base":req.base,"candidate":req.candidate}),
-            )?;
-        }
-        if admit_entry && b_config["schema_version"] == 4 {
-            chrono_harness::prepared::validate_binding(
-                root,
-                b_config,
-                &req.config_path,
-                req.base.as_deref(),
-                &req.candidate,
-                req.initial,
-                &req.scope,
-                None,
-                &req.observations["preparation"],
-            )?;
-        }
+        crate::runtime_session::Session::one::<()>(
+            root,
+            "check-invocation-v1",
+            &object!({"mode":"scoped-request","request":req,"config":b_config,"admit_entry":admit_entry}),
+        )?;
         environment.clear();
         for key in b_config["environment"]["inherit"]
             .as_array()
@@ -1809,7 +1821,7 @@ fn inventory_profile(
             .collect();
         // The caller already owns this binding and its process history.
         reader.verify_config(root, &req.candidate)?;
-        let facts = reader.observation();
+        let facts = reader.observation()?;
         let (binding, offset) = source_observations::binding(&facts)?;
         let git = offset.map(|_| object!({"config":p.facts_config,"git_facts":binding}));
         let mode = if verify_checkout {
@@ -1886,7 +1898,7 @@ fn inventory_profile(
             &affected,
             &methods,
             &operations,
-            &reader.observation(),
+            &reader.observation()?,
             evidence,
         )?;
     }
@@ -1911,11 +1923,11 @@ fn inventory_profile(
     })
 }
 #[cfg(not(verus_keep_ghost))]
-fn report_path(req: &Request, config: &CheckConfig) -> Result<String, String> {
+fn report_path(root: &Path, req: &Request, config: &CheckConfig) -> Result<String, String> {
     Ok(req
         .scope
         .as_ref()
-        .map(|scope| scope.report_path(config))
+        .map(|scope| units::report_path(root, config, scope))
         .transpose()?
         .unwrap_or_else(|| config.report_path.clone()))
 }
@@ -1935,7 +1947,7 @@ fn prepare_plan(
     methods: &BTreeMap<String, Vec<route_wire::Method>>,
     declarations: &Value,
     environment: BTreeMap<String, String>,
-    reused: &BTreeMap<String, chrono_harness::observation::Tool>,
+    reused: &BTreeMap<String, crate::route_wire::Tool>,
 ) -> Result<route_wire::Execution, String> {
     tracing::info_span!("ci.phase", phase = "prepare").in_scope(|| {
         tracing::info!(
@@ -1952,7 +1964,7 @@ fn prepare_plan(
             &req.host_root,
             new,
             scoped_binding(req),
-            &report_path(req, config)?,
+            &report_path(&req.host_root, req, config)?,
             declarations,
             &environment,
             reused,
@@ -1998,7 +2010,7 @@ fn evaluate(
     scope: &mut String,
     profile: Profile,
     project_errors: &mut Vec<String>,
-) -> Result<Evaluation, String> {
+) -> Result<Response, String> {
     let Inventory {
         config,
         p,
@@ -2025,7 +2037,7 @@ fn evaluate(
         inventory_profile(req, reader, evidence, scope, true, true, profile)
     })?;
     let root = &req.host_root;
-    if let Some(chrono_harness::units::Scope::Collect { manifest }) = &req.scope {
+    if let Some(Scope::Collect { manifest }) = &req.scope {
         if !blocked.is_empty() {
             return Err(format!("blocked global obligations: {blocked:?}"));
         }
@@ -2047,8 +2059,9 @@ fn evaluate(
         response.evidence["retirement_context"] = retirement_context;
         return Ok(response);
     }
-    if let Some(chrono_harness::units::Scope::Unit { unit }) = &req.scope {
+    if let Some(Scope::Unit { unit }) = &req.scope {
         selected = units::selection(
+            root,
             p.units.as_ref().ok_or("unit profile missing assignments")?,
             &global_selected,
             unit,
@@ -2092,32 +2105,45 @@ fn evaluate(
     if let Some(plan) = &plan {
         let outcome = execute_plan(req, plan, &new.tools, &p, project_errors)?;
         operation_state = outcome.operation_state.clone();
-        let source_io = source_binding::CandidateIo {
+        let binding = source_binding::Binding::prepare(
             reader,
-            request: req,
-            tree: &new.tree,
+            &req.host_root,
+            &plan.operations,
+            &new.filemap,
+        )?;
+        let compact = if outcome
+            .executed
+            .iter()
+            .chain(&outcome.blocked)
+            .any(|row| row.receipt.is_some())
+        {
+            Some(crate::storage::Storage::open(&req.host_root)?)
+        } else {
+            None
         };
-        let proof_invocations = source_binding::invocations(&plan.operations);
         for result in outcome.executed.iter().chain(&outcome.blocked) {
             results.push(verified_collection::operation_result_with_sources(
                 result.operation.as_str(),
                 result.status.as_str(),
                 &result.error,
                 result.receipt.as_ref().map(|r| r.process.exit_code),
-                source_binding::bind_output(
+                binding.check(
                     result.status.as_str(),
                     result.operation.as_str(),
-                    &proof_invocations,
                     result.receipt.as_ref(),
-                    &new.source_registry,
-                    &source_io,
                 ),
             ));
             if let Some(receipt) = &result.receipt {
                 let mut original = serde_json::to_value(receipt).map_err(|e| e.to_string())?;
-                original["process"] = chrono_harness::full::compact_process(&original["process"])?;
+                original["process"] = compact
+                    .as_ref()
+                    .ok_or("missing original process session")?
+                    .call(object!({"operation":"compact-process","process":original["process"]}))?;
                 executed.push(object!({"operation":result.operation,"receipt":original}));
             }
+        }
+        if let Some(storage) = compact {
+            storage.close()?;
         }
         for (old, replacement) in removed
             .iter()
@@ -2164,14 +2190,14 @@ fn evaluate(
             exit_code: None,
         })
     }
-    let mut response = Evaluation {
+    let mut response = Response {
         protocol: units::scope_protocol(req).into(),
         request_id: req.request_id.clone(),
         status: verified_collection::response_status(&results),
         results,
         evidence: object!({"scope":config.schema,"mode":if req.initial{"initial-inventory"}else{"delta"},"base":req.base,"candidate":req.candidate,"previous_enforcement":previous,"changed_paths":paths,"selection_explanation":selection_explanation,"selected":selected,"operations":operations,"plan":plan,"conversion":conversion,"removed":removed,"retirement_context":retirement_context,"execution_evidence_schema":"chrono-ci-executions/v2","executed":executed,"not_required":not_required,"blocked":blocked,"input_closure":"incomplete: ambient toolchain, SDK, environment and external inputs are not fully enumerated","parity":"unestablished"}),
     };
-    units::decorate(req, &new, &global_selected, &mut response.evidence);
+    units::decorate(req, &new, &global_selected, &mut response.evidence)?;
     response.evidence["operation_state"] = object!(operation_state);
     Ok(response)
 }

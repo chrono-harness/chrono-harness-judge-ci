@@ -1,5 +1,5 @@
 use crate::Policy;
-use chrono_harness::{CommandSpec, wire::Finding};
+use crate::observed::CommandSpec;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::{
@@ -12,6 +12,16 @@ pub(crate) struct Edge {
     pub from: String,
     pub kind: String,
     pub to: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Finding {
+    code: String,
+    level: String,
+    message: String,
+    delta_refs: Vec<String>,
+    causes: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -133,7 +143,7 @@ impl<'a> Query<'a> {
                 cause.trim_end()
             ));
         }
-        chrono_harness::decode(&stdout)
+        crate::codec::decode(&stdout)
     }
 }
 
@@ -149,10 +159,18 @@ pub(crate) fn run_bound(
     mut command: CommandSpec,
     input: &[u8],
 ) -> Result<(i32, Vec<u8>, Vec<u8>), String> {
-    let path = chrono_harness::resolve_program(root, &command.program, None)?;
-    let digest = chrono_harness::file_identity(&path)?.0;
+    let path = crate::files::resolve_program(root, &command.program, None)?;
+    let digest = crate::files::file_identity(&path)?.0;
     command.program = path.to_str().ok_or("non-UTF8 query executable")?.into();
-    let output = chrono_harness::run_process_observed(root, &command, input, &digest)?;
+    let runner = crate::observed::installed(root)?;
+    let output = crate::observed::run(
+        root,
+        &runner,
+        &command,
+        input,
+        &digest,
+        std::time::Duration::from_secs(command.timeout_seconds),
+    )?;
     if let Some(failure) = output.failure {
         return Err(failure);
     }

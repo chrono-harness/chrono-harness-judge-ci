@@ -1,14 +1,14 @@
 //! Read scoped operation declarations and tool observations from the host's routes release.
 use super::route_wire::{Execution, Operation, Receipt};
 use crate::Snapshot;
+use crate::route_wire::Tool;
 use crate::route_wire::{Method, Plan};
-use chrono_harness::observation::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 #[derive(Serialize)]
@@ -37,6 +37,7 @@ pub(super) struct FullOperations {
 
 /// Schedule and collect against the same interpreted endpoint, including retired bindings.
 pub(super) fn full_operations(
+    root: &Path,
     query: &crate::impact_query::Query<'_>,
     filemap: &Value,
     projects: &Value,
@@ -64,7 +65,7 @@ pub(super) fn full_operations(
         .map(|block| {
             let units = serde_json::from_value(block["units"].clone())
                 .map_err(|error| error.to_string())?;
-            Ok::<_, String>(chrono_harness::units::required(&units, selected))
+            crate::units::required(root, &units, selected)
         })
         .transpose()?;
     if response.required_units != expected_units {
@@ -85,7 +86,7 @@ pub(super) fn installed(
             .ok_or_else(|| format!("invalid registered {name} program"))?,
         None => name,
     };
-    chrono_harness::resolve_program(root, program, None)
+    crate::files::resolve_program(root, program, None)
 }
 
 impl Graph<'_> {
@@ -209,10 +210,10 @@ fn read<T: serde::de::DeserializeOwned>(
     operation: &str,
     request: &(impl Serialize + Sync),
 ) -> Result<T, String> {
-    let digest = chrono_harness::file_identity(program)?.0;
+    let digest = crate::files::file_identity(program)?.0;
     // Each tool observation has its own registered bounds. Join the complete
     // preparation even when a plan must observe several tools in sequence.
-    let mut command = Command::new(program);
+    let mut command = crate::storage::command(&crate::observed::installed(root)?, program)?;
     command
         .arg(operation)
         .current_dir(root)
@@ -220,7 +221,6 @@ fn read<T: serde::de::DeserializeOwned>(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    chrono_harness::process_fds::forward_command(&mut command, &[])?;
     let mut child = command
         .spawn()
         .map_err(|e| format!("start {}: {e}", program.display()))?;
@@ -240,10 +240,10 @@ fn read<T: serde::de::DeserializeOwned>(
     }
     sent.map_err(|_| "routes request writer panicked")?
         .map_err(|e| e.to_string())?;
-    if chrono_harness::file_identity(program)?.0 != digest {
+    if crate::files::file_identity(program)?.0 != digest {
         return Err("E_PLAN_BINDING: routes executable changed".into());
     }
-    chrono_harness::decode(&output.stdout)
+    crate::codec::decode(&output.stdout)
 }
 
 #[derive(Serialize)]
@@ -251,7 +251,7 @@ pub(super) struct SourceEndpoint<'a> {
     pub commit: &'a str,
     pub filemap: &'a Value,
     pub projects: &'a Value,
-    pub artifacts: Vec<&'a str>,
+    pub artifacts: Vec<String>,
 }
 
 impl<'a> SourceEndpoint<'a> {
@@ -260,16 +260,12 @@ impl<'a> SourceEndpoint<'a> {
             commit,
             filemap: &snapshot.filemap,
             projects: &snapshot.registry,
-            artifacts: snapshot
-                .policy
-                .artifacts
-                .iter()
-                .map(String::as_str)
-                .collect(),
+            artifacts: snapshot.policy.artifacts.clone(),
         }
     }
 
     pub fn registered(
+        root: &Path,
         commit: &'a str,
         config: &'a Value,
         filemap: &'a Value,
@@ -279,7 +275,11 @@ impl<'a> SourceEndpoint<'a> {
             commit,
             filemap,
             projects,
-            artifacts: chrono_harness::facts::artifact_directories(config)?,
+            artifacts: crate::runtime_session::Session::query(
+                root,
+                "judge-evidence-v1",
+                json!({"operation":"artifact-directories", "config":config}),
+            )?,
         })
     }
 }

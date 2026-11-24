@@ -6,6 +6,8 @@
 
 [固定来源](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/judge-ci)
 
+产品和测试从本仓源码与 crates.io 锁文件独立构建。运行时通过宿主安装的 `chrono-harness` 获取固定两端的 Git 事实、原进程回执、受保留策略管理的文件和准备阶段身份，通过 `chrono-judge-routes` 查询执行单元、计划与回执。部署时使用本仓 mise 配置中的发行版本及 SHA-256。
+
 ## CI 输入查询
 
 从被检查的 Git 宿主根目录运行 `chrono-judge-ci requirements-v1`。stdin 接收一个不超过 1 MiB 的 JSON 对象。成功时 stdout 返回一个 JSON 对象并退出 0，输入或判定失败时 stderr 给出原因并退出 2。所有路径均相对宿主。调用者可以单独安装本仓 release 中的平台二进制并用同一发行的 SHA256SUMS 校验。

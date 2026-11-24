@@ -2,16 +2,19 @@
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
-    io::{BufRead, BufReader, Write},
-    path::Path,
-    process::{Command, Stdio},
+    io::{BufRead, BufReader, Read, Write},
+    path::{Path, PathBuf},
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
 #[derive(Deserialize)]
 pub(crate) struct Snapshot {
     pub(crate) values: BTreeMap<String, Value>,
     pub(crate) effective_path: String,
+    #[serde(default)]
+    pub(crate) originals: BTreeMap<String, String>,
 }
 
 pub(crate) struct Inputs {
@@ -51,25 +54,6 @@ pub(crate) fn collect(
     base: &str,
     candidate: &str,
 ) -> Result<Inputs, String> {
-    fn exchange<T: DeserializeOwned>(
-        input: &mut impl Write,
-        output: &mut impl BufRead,
-        request: Value,
-    ) -> Result<T, String> {
-        serde_json::to_writer(&mut *input, &request).map_err(|e| e.to_string())?;
-        input
-            .write_all(b"\n")
-            .and_then(|()| input.flush())
-            .map_err(|e| e.to_string())?;
-        let mut frame = Vec::new();
-        output
-            .read_until(b'\n', &mut frame)
-            .map_err(|e| e.to_string())?;
-        if frame.last() != Some(&b'\n') {
-            return Err("E_PROTOCOL: incomplete Git facts response".into());
-        }
-        serde_json::from_slice::<Result<T, String>>(&frame).map_err(|e| e.to_string())?
-    }
     #[derive(Deserialize)]
     struct Open {
         bound: bool,
@@ -112,4 +96,198 @@ pub(crate) fn collect(
         candidate,
         observation,
     })
+}
+
+fn exchange<T: DeserializeOwned>(
+    input: &mut impl Write,
+    output: &mut impl BufRead,
+    request: Value,
+) -> Result<T, String> {
+    serde_json::to_writer(&mut *input, &request).map_err(|e| e.to_string())?;
+    input
+        .write_all(b"\n")
+        .and_then(|()| input.flush())
+        .map_err(|e| e.to_string())?;
+    let mut frame = Vec::new();
+    output
+        .read_until(b'\n', &mut frame)
+        .map_err(|e| e.to_string())?;
+    if frame.last() != Some(&b'\n') {
+        return Err("E_PROTOCOL: incomplete Git facts response".into());
+    }
+    serde_json::from_slice::<Result<T, String>>(&frame).map_err(|e| e.to_string())?
+}
+
+struct Connection {
+    child: Child,
+    input: Option<ChildStdin>,
+    output: BufReader<ChildStdout>,
+}
+impl Connection {
+    fn close(&mut self) -> Result<(), String> {
+        self.input.take();
+        let mut trailing = Vec::new();
+        self.output
+            .read_to_end(&mut trailing)
+            .map_err(|e| e.to_string())?;
+        let status = self.child.wait().map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("chrono-harness git-facts-v1 {status}"));
+        }
+        if !trailing.is_empty() {
+            return Err("E_PROTOCOL: trailing Git facts reply".into());
+        }
+        Ok(())
+    }
+    fn call<T: DeserializeOwned>(&mut self, frame: Value) -> Result<T, String> {
+        exchange(
+            self.input.as_mut().ok_or("Git facts input closed")?,
+            &mut self.output,
+            frame,
+        )
+    }
+}
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.input.take();
+        let _ = self.child.wait();
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct Reader {
+    root: PathBuf,
+    base: Option<String>,
+    candidate: String,
+    connection: Option<RefCell<Connection>>,
+}
+impl Reader {
+    pub fn open(
+        root: &Path,
+        base: Option<&str>,
+        candidate: &str,
+        header: Value,
+    ) -> Result<(Self, Value), String> {
+        let local = root.join(".chrono-harness/bin/chrono-harness");
+        let program = if local.is_file() {
+            local.as_path()
+        } else {
+            Path::new("chrono-harness")
+        };
+        let mut command = Command::new(program);
+        command
+            .arg("exec-with-descriptors-v1")
+            .arg(program)
+            .arg("git-facts-v1")
+            .current_dir(root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("start git-facts-v1: {e}"))?;
+        let input = child.stdin.take();
+        let output = BufReader::new(child.stdout.take().unwrap());
+        let mut connection = Connection {
+            child,
+            input,
+            output,
+        };
+        let header = connection.call(header)?;
+        Ok((
+            Self {
+                root: root.into(),
+                base: base.map(str::to_owned),
+                candidate: candidate.into(),
+                connection: Some(RefCell::new(connection)),
+            },
+            header,
+        ))
+    }
+    pub(crate) fn call<T: DeserializeOwned>(&self, root: &Path, frame: Value) -> Result<T, String> {
+        if self.root != root {
+            return Err("E_GIT_FACTS: unexpected root".into());
+        }
+        self.connection
+            .as_ref()
+            .ok_or("Git facts session not open")?
+            .borrow_mut()
+            .call(frame)
+    }
+    fn endpoint(&self, oid: &str) -> Result<&'static str, String> {
+        if oid == self.candidate {
+            Ok("candidate")
+        } else if Some(oid) == self.base.as_deref() {
+            Ok("base")
+        } else {
+            Err("E_GIT_FACTS: unexpected commit".into())
+        }
+    }
+    pub fn verify_config(&self, root: &Path, candidate: &str) -> Result<(), String> {
+        self.call(root, json!({"op":"verify-config","candidate":candidate}))
+    }
+    pub fn verify_oid(&self, root: &Path, oid: &str) -> Result<String, String> {
+        self.call(
+            root,
+            json!({"op":"verify-tree","endpoint":self.endpoint(oid)?}),
+        )
+    }
+    pub fn registry_snapshot(
+        &self,
+        root: &Path,
+        oid: &str,
+        config: &str,
+    ) -> Result<Snapshot, String> {
+        self.call(
+            root,
+            json!({"op":"registry-at","endpoint":self.endpoint(oid)?,"config":config}),
+        )
+    }
+    pub fn blob(&self, root: &Path, oid: &str, path: &str) -> Result<Vec<u8>, String> {
+        self.endpoint(oid)?;
+        self.call(root, json!({"op":"blob-bytes","commit":oid,"path":path}))
+    }
+    pub fn tree(&self, root: &Path, oid: &str) -> Result<BTreeMap<String, Entry>, String> {
+        self.call(
+            root,
+            json!({"op":"tree-entries","endpoint":self.endpoint(oid)?,"retain_output_modes":oid == self.candidate}),
+        )
+    }
+    pub fn parents(&self, root: &Path, oid: &str) -> Result<Vec<String>, String> {
+        self.endpoint(oid)?;
+        self.call(root, json!({"op":"parents","commit":oid}))
+    }
+    pub fn checkout<T: DeserializeOwned>(
+        &self,
+        root: &Path,
+        artifacts: &[String],
+    ) -> Result<T, String> {
+        self.call(
+            root,
+            json!({"op":"checkout-excluding","artifacts":artifacts}),
+        )
+    }
+    pub fn observation(&self) -> Result<Value, String> {
+        match self.connection {
+            None => Ok(Value::Null),
+            Some(_) => self.call(&self.root, json!({"op":"observation"})),
+        }
+    }
+    pub fn close(self) -> Result<(), String> {
+        if let Some(connection) = self.connection {
+            connection.into_inner().close()?;
+        }
+        Ok(())
+    }
+    pub fn finish(self) -> Result<Value, String> {
+        let facts = self.observation();
+        self.close()?;
+        facts
+    }
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Entry {
+    pub mode: String,
+    pub kind: String,
+    pub oid: String,
 }
