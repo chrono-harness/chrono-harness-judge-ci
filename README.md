@@ -49,3 +49,5 @@ scoped CI 用候选宿主的 chrono-judge-registration 执行 `scoped-execution-
 完整调度和收集使用已安装的 registration 解释两端登记与测试操作。调度遇到需要解码器的历史配置时拒绝执行。收集只从原报告提供方请求 registration 实际选中的迁移单元。scoped 启动消费从同一次端点检查中取得方法、计划和测试所有者。调度声明变化时才查询受资源或输出争用影响的测试。以上路径自 registration `v0.1.0-alpha.21` 提供。
 
 CI 的 Rust 产品及测试清单不再依赖 registration 源码。历史 Rust 再导出的快照、保留记录和引用语法函数由 registration 提供，原生用例和适用证明在该仓库执行。CI 接收公开命令的结果并保留自己的业务选择与回执。
+
+完整调度从 PATH 中的 `chrono-harness git-facts-v1` 读取基线和候选登记。两次配置核验、两端快照和 Git 进程记录来自同一个已安装的 runner 会话。CI 使用候选快照指定的有效配置选择超时和输出限额。

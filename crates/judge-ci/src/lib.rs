@@ -42,6 +42,8 @@ mod full_registration;
 #[cfg(not(verus_keep_ghost))]
 pub mod requirements;
 #[cfg(not(verus_keep_ghost))]
+mod scheduling_git;
+#[cfg(not(verus_keep_ghost))]
 pub use collect::{UnitOriginals, unit_originals, unit_response};
 mod source_binding;
 #[cfg(not(verus_keep_ghost))]
@@ -1209,17 +1211,14 @@ pub fn full_scheduling_requirements(
     base: &str,
     candidate: &str,
 ) -> Result<Value, String> {
-    let reader = Reader::for_config(root, profile)?;
-    reader.verify_config(root, candidate)?;
-    reader.verify_oid(root, base)?;
-    reader.verify_oid(root, candidate)?;
-    let previous = reader.registry_values(root, base, profile)?;
-    let candidate_documents = reader.registry_values(root, candidate, profile)?;
-    let identity = chrono_harness::facts::registry_identity(&candidate_documents, profile)?;
-    let config = &candidate_documents[&identity.effective_path];
+    let inputs = scheduling_git::read(root, profile, base, candidate)?;
+    let previous = inputs.previous.values;
+    let candidate_documents = inputs.candidate.values;
+    let config = candidate_documents
+        .get(&inputs.candidate.effective_path)
+        .ok_or("missing effective configuration in candidate snapshot")?;
     let query = Query::full(root, config)?;
-    reader.verify_config(root, candidate)?;
-    let facts = reader.observation();
+    let facts = inputs.observation;
     let (binding, offset) = source_observations::binding(&facts)?;
     let git = offset.map(|_| object!({"config":profile, "git_facts":binding}));
     let reply: TransitionReply<FullPlanning> = query.read(
@@ -1236,7 +1235,7 @@ pub fn full_scheduling_requirements(
     let old = &plans.previous;
     let current = &plans.candidate;
     let impact: impact_query::Obligations = Query::full(root, &current.config)?
-        .with_git_environment(&reader.observation())?
+        .with_git_environment(&facts)?
         .read(
             "chrono-judge-filemap",
             "endpoint-tests",
@@ -1256,7 +1255,6 @@ pub fn full_scheduling_requirements(
         &selected,
         Some(&block),
     )?;
-    let facts = reader.observation();
     route_query::source_plan(
         &query,
         "chrono-judge-routes",
