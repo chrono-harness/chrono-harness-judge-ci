@@ -1,7 +1,7 @@
 //! Opted-in internal consumption references. These checks establish consistency,
 //! not the engineering judgment that a need or an output is useful.
 use crate::scheduling_git::Reader;
-use chrono_harness::{json, relative_path};
+use crate::{codec::json, files::relative_path};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{

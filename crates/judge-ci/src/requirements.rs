@@ -50,7 +50,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             candidate,
             initial,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
+            crate::files::no_symlink_parents(root, &profile)?;
             scheduling_requirements(root, &profile, base, candidate, initial)
         }
         Query::FullSchedule {
@@ -58,7 +58,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             base,
             candidate,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
+            crate::files::no_symlink_parents(root, &profile)?;
             full_scheduling_requirements(root, &profile, &base, &candidate)
         }
         Query::Collect {
@@ -68,7 +68,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             candidate,
             initial,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
+            crate::files::no_symlink_parents(root, &profile)?;
             chrono_harness::units::artifact_path(&manifest)?;
             collection_requirements(root, &profile, &manifest, base, candidate, initial)
         }
@@ -79,8 +79,8 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             base,
             candidate,
         } => {
-            chrono_harness::no_symlink_parents(root, &profile)?;
-            chrono_harness::no_symlink_parents(root, &context)?;
+            crate::files::no_symlink_parents(root, &profile)?;
+            crate::files::no_symlink_parents(root, &context)?;
             let config = chrono_harness::load_selected_config(root, &profile)?;
             let block = chrono_harness::units::full_execution_units(&config)?
                 .ok_or("full provider requires registered full units")?;
@@ -126,7 +126,7 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
             report,
             transport,
         } => {
-            let raw = fs::read(chrono_harness::no_symlink_parents(root, &profile)?)
+            let raw = fs::read(crate::files::no_symlink_parents(root, &profile)?)
                 .map_err(|e| e.to_string())?;
             if sha256(&raw) != profile_sha256 {
                 return Err("collection check profile changed".into());

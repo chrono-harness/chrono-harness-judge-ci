@@ -1,13 +1,26 @@
 #![allow(unexpected_cfgs)]
 // Explicit CI policy: fixed Git snapshots, registered old/new impact graph, candidate operations.
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{CheckConfig, PROTOCOL, Request, decode, json, relative_path, sha256};
+use crate::{
+    codec::{decode, json},
+    files::{relative_path, sha256},
+};
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::{CheckConfig, PROTOCOL, Request};
+#[cfg(not(verus_keep_ghost))]
+pub mod codec;
 #[cfg(not(verus_keep_ghost))]
 pub mod consumption;
 #[cfg(not(verus_keep_ghost))]
 mod diagnostic_session;
 #[cfg(not(verus_keep_ghost))]
+pub use diagnostic_session::cli;
+#[cfg(not(verus_keep_ghost))]
+mod files;
+#[cfg(not(verus_keep_ghost))]
 pub mod impact_query;
+#[cfg(not(verus_keep_ghost))]
+pub mod observed;
 #[cfg(not(verus_keep_ghost))]
 mod project_execution;
 #[cfg(not(verus_keep_ghost))]
@@ -940,7 +953,7 @@ fn ci_impact(
 #[cfg(not(verus_keep_ghost))]
 pub fn judge(req: &Request) -> Response {
     #[cfg(unix)]
-    let sink = chrono_harness::NativeOutput::new(std::io::stderr());
+    let sink = diagnostic_session::Stderr;
     #[cfg(not(unix))]
     let sink = std::io::stderr();
     judge_with_diagnostic_sink(req, sink)
@@ -1127,13 +1140,13 @@ fn full_collection_at(
             .and_then(Path::to_str)
             .filter(|s| !s.is_empty())
         {
-            chrono_harness::no_symlink_parents(root, parent)?;
+            crate::files::no_symlink_parents(root, parent)?;
         }
         let runner = fs::canonicalize(root.join(declared)).map_err(|e| e.to_string())?;
         if runner != Path::new(&req.runner.path)
             || cfg["runner"]["sha256"] != req.runner.sha256
             || cfg["runner"]["version"] != req.runner.version
-            || chrono_harness::file_identity(&runner)?.0 != req.runner.sha256
+            || crate::files::file_identity(&runner)?.0 != req.runner.sha256
         {
             return Err("E_EXECUTABLE_BINDING: registered collection runner differs".into());
         }

@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 #[derive(Serialize)]
@@ -85,7 +85,7 @@ pub(super) fn installed(
             .ok_or_else(|| format!("invalid registered {name} program"))?,
         None => name,
     };
-    chrono_harness::resolve_program(root, program, None)
+    crate::files::resolve_program(root, program, None)
 }
 
 impl Graph<'_> {
@@ -209,10 +209,10 @@ fn read<T: serde::de::DeserializeOwned>(
     operation: &str,
     request: &(impl Serialize + Sync),
 ) -> Result<T, String> {
-    let digest = chrono_harness::file_identity(program)?.0;
+    let digest = crate::files::file_identity(program)?.0;
     // Each tool observation has its own registered bounds. Join the complete
     // preparation even when a plan must observe several tools in sequence.
-    let mut command = Command::new(program);
+    let mut command = crate::observed::command(&crate::observed::installed(root)?, program);
     command
         .arg(operation)
         .current_dir(root)
@@ -220,7 +220,6 @@ fn read<T: serde::de::DeserializeOwned>(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    chrono_harness::process_fds::forward_command(&mut command, &[])?;
     let mut child = command
         .spawn()
         .map_err(|e| format!("start {}: {e}", program.display()))?;
@@ -240,10 +239,10 @@ fn read<T: serde::de::DeserializeOwned>(
     }
     sent.map_err(|_| "routes request writer panicked")?
         .map_err(|e| e.to_string())?;
-    if chrono_harness::file_identity(program)?.0 != digest {
+    if crate::files::file_identity(program)?.0 != digest {
         return Err("E_PLAN_BINDING: routes executable changed".into());
     }
-    chrono_harness::decode(&output.stdout)
+    crate::codec::decode(&output.stdout)
 }
 
 #[derive(Serialize)]

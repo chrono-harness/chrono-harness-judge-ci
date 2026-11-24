@@ -65,7 +65,7 @@ fn read(
         return Err("collection input is not a declared artifact".into());
     }
     let _use = chrono_harness::retained_artifacts::retention::read_guard(root, path)?;
-    let resolved = chrono_harness::no_symlink_parents(root, path)?;
+    let resolved = crate::files::no_symlink_parents(root, path)?;
     let meta = fs::symlink_metadata(&resolved).map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err(format!("collection input must be a regular file: {path}"));
@@ -100,7 +100,7 @@ fn process(p: &ProcessResult) -> Result<(), String> {
         || p.stderr_sha256 != sha256(&p.stderr_bytes)
         || p.stdout != String::from_utf8_lossy(&p.stdout_bytes)
         || p.stderr != String::from_utf8_lossy(&p.stderr_bytes)
-        || p.environment_digest != chrono_harness::wire::digest(&p.environment)?
+        || p.environment_digest != crate::codec::digest(&p.environment)?
     {
         return Err("unit original process bytes or identity mismatch".into());
     }

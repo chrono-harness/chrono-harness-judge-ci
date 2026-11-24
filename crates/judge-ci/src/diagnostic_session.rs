@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::{
     io::{self, BufRead, BufReader, BufWriter, Write},
     path::Path,
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{Arc, Mutex},
 };
 
@@ -73,8 +73,8 @@ pub(super) fn run<T>(
     work: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
     let start = || -> Result<_, String> {
-        let path = chrono_harness::resolve_program(root, program, None)?;
-        let mut command = Command::new(&path);
+        let path = crate::files::resolve_program(root, program, None)?;
+        let mut command = crate::observed::command(&crate::observed::installed(root)?, &path);
         command
             .current_dir(root)
             .arg("trace-events-v1")
@@ -83,7 +83,6 @@ pub(super) fn run<T>(
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        chrono_harness::process_fds::forward_command(&mut command, &[])?;
         command
             .spawn()
             .map_err(|e| format!("start {}: {e}", path.display()))
@@ -192,4 +191,95 @@ where
         }
     };
     (result, status)
+}
+
+/// Forward lifecycle and trace events to the diagnostics executable selected by the host.
+pub fn cli(run: impl FnOnce() -> u8) -> u8 {
+    fn logged(root: &Path, run: impl FnOnce() -> u8) -> Result<u8, String> {
+        match std::fs::symlink_metadata(root.join(".chrono-harness/logging.json")) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(run()),
+            Err(e) => return Err(e.to_string()),
+            Ok(_) => {}
+        }
+        let local = root.join(".chrono-harness/bin/chrono-diagnostics");
+        let program = if local.is_file() {
+            local
+        } else {
+            crate::files::resolve_program(root, "chrono-diagnostics", None)?
+        };
+        let operation = std::env::args_os().nth(1).unwrap_or_default();
+        let mut command = if std::env::var_os("CHRONO_PROCESS_FDS").is_some() {
+            crate::observed::command(&crate::observed::installed(root)?, &program)
+        } else {
+            std::process::Command::new(program)
+        };
+        let mut child = command
+            .arg("cli-events-v1")
+            .arg(root)
+            .arg("chrono-judge-ci")
+            .arg(operation.to_str().unwrap_or(""))
+            .arg(std::process::id().to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let mut response = BufReader::new(child.stdout.take().unwrap());
+        let mut stream = BufWriter::new(child.stdin.take().unwrap());
+        fn send(stream: &mut impl Write, value: &Value) -> io::Result<()> {
+            serde_json::to_writer(&mut *stream, value)?;
+            stream.write_all(b"\n")?;
+            stream.flush()
+        }
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> io::Result<u8> {
+                let mut ready = String::new();
+                response.read_line(&mut ready)?;
+                if serde_json::from_str::<Value>(&ready)? != json!({"ready":true}) {
+                    return Err(io::Error::other("invalid diagnostics ready reply"));
+                }
+                let shared = Arc::new(Mutex::new((stream, Ok(()))));
+                let events = shared.clone();
+                let subscriber = Source::new(move |event| {
+                    let mut state = events.lock().unwrap();
+                    if state.1.is_ok() {
+                        state.1 = send(&mut state.0, &json!({"event":event}));
+                    }
+                });
+                let code = tracing::subscriber::with_default(subscriber, run);
+                let mut state = shared.lock().unwrap();
+                std::mem::replace(&mut state.1, Ok(()))?;
+                send(&mut state.0, &json!({"exit_code":code}))?;
+                Ok(code)
+            }));
+        let status = child.wait().map_err(|e| e.to_string())?;
+        let code = result
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            .map_err(|e| e.to_string())?;
+        if status.code() != Some(i32::from(code)) {
+            return Err(format!(
+                "diagnostics returned {status} for judge exit {code}"
+            ));
+        }
+        Ok(code)
+    }
+    std::env::current_dir()
+        .map_err(|e| e.to_string())
+        .and_then(|root| logged(&root, run))
+        .unwrap_or_else(|e| {
+            eprintln!("chrono-diagnostics: {e}");
+            2
+        })
+}
+
+/// Preserve native stderr write errors from the configured diagnostic sink.
+#[cfg(unix)]
+pub(super) struct Stderr;
+#[cfg(unix)]
+impl Write for Stderr {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        rustix::io::write(std::io::stderr(), bytes).map_err(Into::into)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }

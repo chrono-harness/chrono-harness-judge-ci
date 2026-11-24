@@ -22,7 +22,7 @@ fn run() -> u8 {
             write_response(&mut output, &response)?;
             Ok(0)
         } else {
-            let request = chrono_harness::decode::<chrono_harness::Request>(&bytes)?;
+            let request = chrono_judge_ci::codec::decode::<chrono_harness::Request>(&bytes)?;
             let response = chrono_judge_ci::judge(&request);
             let failed = matches!(
                 response.status,
@@ -35,7 +35,7 @@ fn run() -> u8 {
     });
     result.unwrap_or_else(|e| {
         let code = if query { "E_REQUIREMENTS" } else { "E_REQUEST" };
-        chrono_harness::log_cli_error(&format!("{code}: {e}"));
+        tracing::error!(event_id="cli.diagnostic", message=%format!("{code}: {e}"));
         eprintln!("{code}: {e}");
         2
     })
@@ -50,5 +50,5 @@ fn write_response(output: &mut impl Write, response: &impl serde::Serialize) -> 
 }
 
 fn main() -> std::process::ExitCode {
-    std::process::ExitCode::from(chrono_harness::logged_main("chrono-judge-ci", run))
+    std::process::ExitCode::from(chrono_judge_ci::cli(run))
 }

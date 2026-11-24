@@ -7,7 +7,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 use tracing_tunnel::{TracingEvent, TracingEventReceiver};
 
@@ -130,20 +130,20 @@ pub(super) fn execute(
 ) -> Result<Results, String> {
     let projects = installed(root, tools, "chrono-judge-projects")?;
     let routes = installed(root, tools, "chrono-judge-routes")?;
-    let digest = chrono_harness::file_identity(&projects)?.0;
+    let digest = crate::files::file_identity(&projects)?.0;
     let max_level = tracing::level_filters::LevelFilter::current();
     let diagnostics = max_level.into_level().map(|level| level.as_str());
     let request = Request {
         plan,
         routes: RouteCommand {
-            sha256: chrono_harness::file_identity(&routes)?.0,
+            sha256: crate::files::file_identity(&routes)?.0,
             executable: routes,
             timeout_seconds,
             output_limit_bytes,
         },
         diagnostics,
     };
-    let mut command = Command::new(&projects);
+    let mut command = crate::observed::command(&crate::observed::installed(root)?, &projects);
     command
         .arg("execute-plan-v1")
         .env_clear()
@@ -152,7 +152,6 @@ pub(super) fn execute(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    chrono_harness::process_fds::forward_command(&mut command, &[])?;
     let mut child = command
         .spawn()
         .map_err(|e| format!("start {}: {e}", projects.display()))?;
@@ -184,7 +183,7 @@ pub(super) fn execute(
         .map_err(|_| "projects result reader panicked")?
         .map_err(|e| format!("invalid projects result: {e}"))?;
     reply.results.validate(plan)?;
-    if chrono_harness::file_identity(&projects)?.0 != digest {
+    if crate::files::file_identity(&projects)?.0 != digest {
         return Err("E_PLAN_BINDING: projects program or result plan changed".into());
     }
     errors.extend(reply.diagnostic_error);

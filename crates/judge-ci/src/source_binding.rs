@@ -58,7 +58,7 @@ impl CandidateSourceRead for CandidateIo<'_> {
     }
 
     fn digest(&self, bytes: &[u8]) -> Vec<u8> {
-        chrono_harness::sha256(bytes).into_bytes()
+        crate::files::sha256(bytes).into_bytes()
     }
 }
 
