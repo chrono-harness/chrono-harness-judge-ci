@@ -347,6 +347,18 @@
       ]
     },
     {
+      "path": "crates/judge-ci-tests/tests/fixtures/unit-profile.json",
+      "owner": "judge-ci-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ]
+    },
+    {
       "path": "crates/judge-ci-tests/tests/impact_query.rs",
       "owner": "judge-ci-tests",
       "surface": "test",

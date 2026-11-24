@@ -7,6 +7,34 @@ use result_types::{CheckResult, Status};
 
 verus! {
 
+/// Identifies the exact profile before its bytes can be decoded.
+pub fn profile_matches(observed: &str, declared: &str) -> (ok: bool)
+    ensures ok == (observed@ == declared@),
+{
+    <&str>::exec_eq(observed, declared)
+}
+
+/// The report must name the path registered for this exact unit.
+pub fn report_path_matches(registered: Option<&str>, declared: &str) -> (ok: bool)
+    ensures ok == match registered { Some(path) => path@ == declared@, None => false },
+{
+    match registered {
+        Some(path) => <&str>::exec_eq(path, declared),
+        None => false,
+    }
+}
+
+/// Only deliver bytes to the collector after their observed identity matches.
+pub fn admitted_report<'a>(bytes: &'a [u8], observed: &str, declared: &str)
+    -> (out: Option<&'a [u8]>)
+    ensures match out {
+        Some(data) => observed@ == declared@ && data == bytes,
+        None => observed@ != declared@,
+    },
+{
+    if <&str>::exec_eq(observed, declared) { Some(bytes) } else { None }
+}
+
 /// A plan with missing inputs stays blocked before any route query.
 pub fn can_validate_selected_plan(blocked: &[String]) -> (ready: bool)
     ensures ready == (blocked.len() == 0),

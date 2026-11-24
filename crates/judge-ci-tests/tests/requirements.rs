@@ -36,6 +36,37 @@ fn collection_only_accepts_a_manifest_under_the_declared_state_root() {
     );
 }
 
+#[test]
+fn unit_query_rejects_profile_and_unit_drift_before_reading_the_original() {
+    use serde_json::json;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let report = ".chrono-harness/state/a/check.json";
+    let digest = "5399ca3f602934d92f370ad3a154782e0bc126daa02ce7dabc6426cdd2c60438";
+    let request = |profile_sha256: &str, unit: &str, path: &str| {
+        let input = json!({"operation":"unit-originals", "profile":"unit-profile.json",
+            "profile_sha256":profile_sha256, "unit":unit,
+            "report":{"path":path,"sha256":"deliberately-wrong"},
+            "transport":{"source_directory":".chrono-harness/state/a/","directory":".chrono-harness/state/download/"}});
+        query(&root, &serde_json::to_vec(&input).unwrap()).unwrap_err()
+    };
+    assert_eq!(
+        request("changed", "unit-a", report),
+        "collection check profile changed"
+    );
+    assert_eq!(
+        request("changed", "other", "wrong"),
+        "collection check profile changed"
+    );
+    assert_eq!(
+        request(digest, "other", report),
+        "unit report differs from profile registration"
+    );
+    assert_eq!(
+        request(digest, "unit-a", "wrong"),
+        "unit report differs from profile registration"
+    );
+}
+
 #[allow(dead_code)]
 #[path = "../../judge-ci/src/scheduling_git.rs"]
 mod scheduling_git;

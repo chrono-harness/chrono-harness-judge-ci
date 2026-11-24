@@ -14,6 +14,22 @@ use vstd::prelude::*;
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn unit_originals_bind_profile_path_and_report_bytes() {
+    proof { reveal_strlit("A"); reveal_strlit("B"); assert("A"@[0] != "B"@[0]); }
+    let exact = policy::profile_matches("A","A"); expect(exact);
+    let other = policy::profile_matches("B","A"); expect(!other);
+    let missing = policy::report_path_matches(None,"A"); expect(!missing);
+    let known = policy::report_path_matches(Some("A"),"A"); expect(known);
+    let wrong_path = policy::report_path_matches(Some("A"),"B"); expect(!wrong_path);
+    let bytes = [0u8,255u8];
+    let accepted = policy::admitted_report(&bytes,"A","A");
+    expect(accepted.is_some());
+    assert(accepted.unwrap()@ == bytes@);
+    let rejected = policy::admitted_report(&bytes,"B","A");
+    expect(rejected.is_none());
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn registered_action_references_require_the_real_tool_with_no_profile_fallback() {
     let missing = policy::action_tool_allowed(true, false, false);
     let stale_copy = policy::action_tool_allowed(true, false, true);
