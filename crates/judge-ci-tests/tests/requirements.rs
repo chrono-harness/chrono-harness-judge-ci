@@ -97,3 +97,70 @@ fn scheduling_reads_fixed_snapshots_and_preserves_the_first_git_error() {
         assert!(scheduling_git::collect(Vec::new(), bad.as_bytes(), "policy", "a", "b").is_err());
     }
 }
+
+use chrono_judge_ci::originals;
+#[path = "../../judge-ci/src/runtime_session/originals.rs"]
+mod collector_reader;
+
+#[test]
+fn collector_sends_raw_original_only_after_size_admission() {
+    use serde_json::{Value, json};
+    let operation = json!({"operation":"restore-scoped-process","limit":3});
+    let path = ".chrono-harness/state/out";
+    let read = json!({"read_original":{"path":path,"sha256":"retained"}});
+    let bytes = [0, 0xff, b'\n'];
+    let input = format!("{read}\n{{\"send_original\":true}}\n{{\"Ok\":\"restored\"}}\n");
+    let mut output = Vec::new();
+    let mut supply = |original: &originals::Original| {
+        assert_eq!(original.path, path);
+        assert_eq!(original.sha256, "retained");
+        Ok(bytes.to_vec())
+    };
+    let result: String =
+        collector_reader::transfer(&mut input.as_bytes(), &mut output, &operation, &mut supply)
+            .unwrap();
+    assert_eq!(result, "restored");
+    let header = format!("{operation}\n{{\"Ok\":3}}\n");
+    assert_eq!(output, [header.as_bytes(), &bytes].concat());
+    for (reply, message) in [
+        (r#"{"Err":"over budget"}"#, "over budget"),
+        (
+            r#"{"Ok":"early success"}"#,
+            "invalid original length acknowledgement",
+        ),
+        (
+            r#"{"send_original":false}"#,
+            "invalid original length acknowledgement",
+        ),
+        ("", "incomplete runner response"),
+    ] {
+        let input = format!(
+            "{read}\n{reply}{}",
+            if reply.is_empty() { "" } else { "\n" }
+        );
+        let mut output = Vec::new();
+        let error = collector_reader::transfer::<Value>(
+            &mut input.as_bytes(),
+            &mut output,
+            &operation,
+            &mut supply,
+        )
+        .unwrap_err();
+        assert!(error.contains(message), "{error}");
+        assert_eq!(output, header.as_bytes());
+    }
+    let input = format!("{read}\n{{\"Err\":\"reader error\"}}\n");
+    let mut output = Vec::new();
+    let error = collector_reader::transfer::<Value>(
+        &mut input.as_bytes(),
+        &mut output,
+        &operation,
+        &mut |_| Err("reader error".into()),
+    )
+    .unwrap_err();
+    assert_eq!(error, "reader error");
+    assert_eq!(
+        output,
+        format!("{operation}\n{{\"Err\":\"reader error\"}}\n").as_bytes()
+    );
+}
