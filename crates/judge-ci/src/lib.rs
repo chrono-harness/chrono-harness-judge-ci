@@ -1864,7 +1864,7 @@ fn inventory_profile(
             (
                 id.clone(),
                 vec![route_wire::Method {
-                    owner: format!("project:{owner}"),
+                    owner: new.owner_nodes[owner].clone(),
                     operation: id.clone(),
                     tool: tool.clone(),
                     argv: argv.clone(),
