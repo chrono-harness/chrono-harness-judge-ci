@@ -273,11 +273,6 @@ fn collect_checked(
     environment_policy: &Value,
 ) -> Result<Response, String> {
     let p = &snapshot.policy;
-    let source_io = super::source_binding::CandidateIo {
-        reader,
-        request: req,
-        tree: &snapshot.tree,
-    };
     let units = p
         .units
         .as_ref()
@@ -556,7 +551,12 @@ fn collect_checked(
             .map(|o| o.method.operation.clone())
             .collect();
         let expected_ids = verified_collection::borrow_texts(&expected_ops);
-        let proof_invocations = source_binding::invocations(&operations);
+        let binding = source_binding::Binding::prepare(
+            reader,
+            &req.host_root,
+            &operations,
+            &snapshot.filemap,
+        )?;
         let not_required_ids = verified_collection::borrow_texts(&not_required);
         let executed = e["executed"].as_array().ok_or("unit executions missing")?;
         if e["operations"] != object!(expected_ops) || executed.len() != operations.len() {
@@ -590,13 +590,10 @@ fn collect_checked(
             if let Some(error) = checks.remove(&operation.method.operation).flatten() {
                 return Err(error);
             }
-            source_binding::bind_output(
+            binding.check(
                 "passed",
                 operation.method.operation.as_str(),
-                &proof_invocations,
                 Some(&receipt),
-                &snapshot.source_registry,
-                &source_io,
             )?;
             if row["operation"] != operation.method.operation
                 || receipt.process.exit_code != 0

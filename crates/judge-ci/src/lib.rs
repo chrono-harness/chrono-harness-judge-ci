@@ -60,6 +60,7 @@ pub mod requirements;
 mod scheduling_git;
 #[cfg(not(verus_keep_ghost))]
 pub use collect::{UnitOriginals, unit_originals, unit_response};
+#[cfg(not(verus_keep_ghost))]
 mod source_binding;
 #[cfg(not(verus_keep_ghost))]
 mod units;
@@ -150,7 +151,6 @@ struct Snapshot {
     owner_nodes: BTreeMap<String, String>,
     test_owners: BTreeMap<String, String>,
     files: BTreeMap<String, Value>,
-    source_registry: Result<chrono_harness::verified_verifier::sources::SourceRegistry, String>,
     projects: BTreeMap<String, Value>,
     operations: BTreeMap<
         String,
@@ -705,12 +705,11 @@ fn snapshot(
         .map_err(|error| error.to_string())?;
     let snapshot = Snapshot {
         registry: pr,
-        filemap: fm.clone(),
+        filemap: fm,
         tools,
         owner_nodes,
         test_owners,
         files,
-        source_registry: serde_json::from_value(fm).map_err(|e| e.to_string()),
         projects,
         operations: ops,
         edges,
@@ -2120,25 +2119,22 @@ fn evaluate(
     if let Some(plan) = &plan {
         let outcome = execute_plan(req, plan, &new.tools, &p, project_errors)?;
         operation_state = outcome.operation_state.clone();
-        let source_io = source_binding::CandidateIo {
+        let binding = source_binding::Binding::prepare(
             reader,
-            request: req,
-            tree: &new.tree,
-        };
-        let proof_invocations = source_binding::invocations(&plan.operations);
+            &req.host_root,
+            &plan.operations,
+            &new.filemap,
+        )?;
         for result in outcome.executed.iter().chain(&outcome.blocked) {
             results.push(verified_collection::operation_result_with_sources(
                 result.operation.as_str(),
                 result.status.as_str(),
                 &result.error,
                 result.receipt.as_ref().map(|r| r.process.exit_code),
-                source_binding::bind_output(
+                binding.check(
                     result.status.as_str(),
                     result.operation.as_str(),
-                    &proof_invocations,
                     result.receipt.as_ref(),
-                    &new.source_registry,
-                    &source_io,
                 ),
             ));
             if let Some(receipt) = &result.receipt {

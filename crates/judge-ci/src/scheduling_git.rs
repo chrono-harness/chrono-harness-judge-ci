@@ -203,7 +203,7 @@ impl Reader {
             header,
         ))
     }
-    fn call<T: DeserializeOwned>(&self, root: &Path, frame: Value) -> Result<T, String> {
+    pub(crate) fn call<T: DeserializeOwned>(&self, root: &Path, frame: Value) -> Result<T, String> {
         if self.root != root {
             return Err("E_GIT_FACTS: unexpected root".into());
         }
@@ -246,16 +246,10 @@ impl Reader {
         self.endpoint(oid)?;
         self.call(root, json!({"op":"blob-bytes","commit":oid,"path":path}))
     }
-    pub fn blobs(&self, root: &Path, oid: &str, paths: &[String]) -> Result<Vec<Vec<u8>>, String> {
-        self.call(
-            root,
-            json!({"op":"blob-batch","endpoint":self.endpoint(oid)?,"paths":paths}),
-        )
-    }
     pub fn tree(&self, root: &Path, oid: &str) -> Result<BTreeMap<String, Entry>, String> {
         self.call(
             root,
-            json!({"op":"tree-entries","endpoint":self.endpoint(oid)?}),
+            json!({"op":"tree-entries","endpoint":self.endpoint(oid)?,"retain_output_modes":oid == self.candidate}),
         )
     }
     pub fn parents(&self, root: &Path, oid: &str) -> Result<Vec<String>, String> {
