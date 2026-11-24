@@ -430,13 +430,18 @@ fn collect_checked(
             return Err("unit judge command differs from profile".into());
         }
         if response.status != Status::Passed {
+            let reference = format!("original report {} ({})", input.path, input.sha256);
+            let cause = match verified_collection::first_failure(&response.results) {
+                Some(index) => {
+                    let row = &response.results[index];
+                    format!("{} | {} ({reference})", row.id, row.cause)
+                }
+                None => format!("unit failed; {reference}"),
+            };
             results.push(CheckResult {
                 id: format!("ci.unit.{}", input.unit),
                 status: Status::Failed,
-                cause: format!(
-                    "unit failed; original report {} ({})",
-                    input.path, input.sha256
-                ),
+                cause,
                 exit_code: Some(producer.exit_code),
             });
             verified.push(object!({"unit":input.unit,"path":input.path,"sha256":input.sha256,"status":"failed-original-retained"}));

@@ -120,8 +120,15 @@ pub open spec fn report_status(rows: Seq<CheckResult>) -> Status {
 }
 
 /// 本地／单元和离线汇总使用同一真实结果列表，失败或阻断均不能生成通过。
-pub fn response_status(rows: &Vec<CheckResult>) -> (status: Status)
-    ensures status == report_status(rows@),
+pub fn first_failure(rows: &Vec<CheckResult>) -> (found: Option<usize>)
+    ensures found.is_some() == report_failure(rows@),
+        match found {
+            Some(i) => i < rows.len() && (rows[i as int].status == Status::Failed
+                    || rows[i as int].status == Status::Blocked)
+                && forall|j: int| 0 <= j < i ==> (#[trigger] rows[j]).status != Status::Failed
+                    && rows[j].status != Status::Blocked,
+            None => true,
+        },
 {
     let mut i = 0;
     while i < rows.len()
@@ -130,14 +137,19 @@ pub fn response_status(rows: &Vec<CheckResult>) -> (status: Status)
                 && rows[j].status != Status::Blocked,
         decreases rows.len() - i,
     {
-        let row = &rows[i];
-        if matches!(row.status, Status::Failed | Status::Blocked) {
+        if matches!(rows[i].status, Status::Failed | Status::Blocked) {
             assert(report_failure(rows@));
-            return Status::Failed;
+            return Some(i);
         }
         i += 1;
     }
-    Status::Passed
+    None
+}
+
+pub fn response_status(rows: &Vec<CheckResult>) -> (status: Status)
+    ensures status == report_status(rows@),
+{
+    if first_failure(rows).is_some() { Status::Failed } else { Status::Passed }
 }
 
 /// 原异常产生唯一库存失败记录；状态与该实际记录同源。
