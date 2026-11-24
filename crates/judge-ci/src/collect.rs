@@ -37,18 +37,7 @@ pub fn unit_response(value: &Value, request_id: &str, exit: i32) -> Result<Respo
             _ => (),
         }
     }
-    let failed = response
-        .results
-        .iter()
-        .any(|row| matches!(row.status, Status::Failed | Status::Blocked));
-    let unused = response
-        .results
-        .iter()
-        .all(|row| row.status == Status::NotRequired);
-    if failed != matches!(response.status, Status::Failed | Status::Blocked)
-        || unused != (response.status == Status::NotRequired)
-        || failed != (exit != 0)
-    {
+    if !verified_collection::unit_outcome_matches(&response.results, response.status, exit) {
         return Err("judge exit/status/results disagreement".into());
     }
     Ok(response)
