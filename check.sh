@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-native_only=false
-if [[ ${1:-} == --native && $# -eq 1 ]]; then
-  native_only=true
-elif [[ $# -ne 0 ]]; then
+if [[ $# -eq 0 ]]; then
+  /bin/sh .chrono-harness/ci/install.sh
+  export PATH="$PWD/.chrono-harness/bin:$PATH"
+  export CHRONO_CHECK_SOURCE=${CHRONO_CHECK_SOURCE:-local}
+  exec .chrono-harness/bin/chrono-harness check
+fi
+if [[ $# -ne 1 || $1 != --native ]]; then
   echo 'usage: ./check.sh [--native]' >&2
   exit 2
 fi
@@ -36,23 +39,6 @@ chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_collect
   src/consumption.rs src/lib.rs ||
   coverage_failure "native library differs from required sources"
 
-if "$native_only"; then exit 0; fi
-
-verifier=$(command -v "${VERUS:-verus}") || coverage_failure "registered verifier was not found"
-
-prove() {
-  chrono-host-bootstrap run-compiler-proof "$scratch" "$1" "$verifier" "$2" ||
-    coverage_failure "$1: verifier failed"
-}
-
-admit_proof() {
-  local operation=$1
-  shift
-  chrono-host-bootstrap collect-compiler-proof "$scratch" "$operation" "$verifier" \
-    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$@" ||
-    coverage_failure "$operation: required proof result was not admitted"
-}
-
 src=crates/judge-ci/src
 tests=crates/judge-ci-tests/tests
 include=$tests/../../judge-ci/src
@@ -61,15 +47,10 @@ collection_tests_operation=verify.ci-collection-tests
 preparation_operation=verify.ci-preparation
 preparation_tests_operation=verify.ci-preparation-tests
 
-prove "$collection_operation" "$src/verified_collection.rs"
-prove "$collection_tests_operation" "$tests/verified_collection.rs"
-prove "$preparation_operation" "$src/verified_consumption.rs"
-prove "$preparation_tests_operation" "$tests/verified_consumption.rs"
-
-admit_proof "$collection_operation" "$src/verified_collection.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$collection_operation.rlib" "$src/verified_collection.rs" \
   "$src/result_types.rs"
-admit_proof "$collection_tests_operation" "$tests/verified_collection.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$collection_tests_operation.rlib" "$tests/verified_collection.rs" \
   "$include/verified_collection.rs" "$include/result_types.rs" "$tests/support/expect.rs"
-admit_proof "$preparation_operation" "$src/verified_consumption.rs"
-admit_proof "$preparation_tests_operation" "$tests/verified_consumption.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$preparation_operation.rlib" "$src/verified_consumption.rs"
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$preparation_tests_operation.rlib" "$tests/verified_consumption.rs" \
   "$include/verified_consumption.rs"
