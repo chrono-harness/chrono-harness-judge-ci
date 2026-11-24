@@ -1,0 +1,19 @@
+{
+  "schema": "chrono-ci-check/v3",
+  "judge": {
+    "program": "judge",
+    "timeout_seconds": 60,
+    "output_limit_bytes": 4096
+  },
+  "report_path": ".chrono-harness/state/collection/check.json",
+  "policy": {
+    "units": {
+      "unit-a": {
+        "tests": [
+          "t"
+        ],
+        "report_path": ".chrono-harness/state/a/check.json"
+      }
+    }
+  }
+}

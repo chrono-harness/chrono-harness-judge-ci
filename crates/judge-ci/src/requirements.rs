@@ -134,17 +134,17 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
         } => {
             let raw = fs::read(crate::files::no_symlink_parents(root, &profile)?)
                 .map_err(|e| e.to_string())?;
-            if sha256(&raw) != profile_sha256 {
+            if !verified_collection::profile_matches(&sha256(&raw), &profile_sha256) {
                 return Err("collection check profile changed".into());
             }
             let config: CheckConfig = decode(&raw)?;
             let registered: BTreeMap<String, Unit> =
                 serde_json::from_value(config.policy["units"].clone())
                     .map_err(|e| e.to_string())?;
-            if registered
-                .get(&unit)
-                .is_none_or(|u| u.report_path != report.path)
-            {
+            if !verified_collection::report_path_matches(
+                registered.get(&unit).map(|u| u.report_path.as_str()),
+                &report.path,
+            ) {
                 return Err("unit report differs from profile registration".into());
             }
             let limit: CollectionLimits = config
@@ -163,10 +163,10 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
                 )
             };
             let bytes = mapped(&report, limit.report_bytes)?;
-            if sha256(&bytes) != report.sha256 {
-                return Err(format!("unit {unit} report digest mismatch"));
-            }
-            unit_originals(root, &config, &unit, &bytes, Some(&transport), mapped)?;
+            let accepted =
+                verified_collection::admitted_report(&bytes, &sha256(&bytes), &report.sha256)
+                    .ok_or_else(|| format!("unit {unit} report digest mismatch"))?;
+            unit_originals(root, &config, &unit, accepted, Some(&transport), mapped)?;
             Ok(object!({"unit":unit,"report_sha256":report.sha256}))
         }
     }
