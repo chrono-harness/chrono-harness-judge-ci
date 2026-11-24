@@ -1,12 +1,36 @@
 //! The published routes plan and projects receipt consumed by CI. The installed
 //! route planner checks their identities and business invariants during replay.
-use chrono_harness::{ProcessResult, observation::Tool, verified_verifier::CompiledArtifact};
+use chrono_harness::{ProcessResult, observation::Tool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
 };
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct OutputContract {
+    version: String,
+    commit: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CompiledArtifact {
+    path: Vec<u8>,
+    sha256: Vec<u8>,
+    length: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RegisteredAction {
+    pub operation: String,
+    pub tool: String,
+    pub argv: Vec<String>,
+    pub output_contract: Option<OutputContract>,
+}
 
 /// The installed registration and routes commands validate these public declarations.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,7 +41,7 @@ pub(crate) struct Method {
     pub tool: String,
     pub argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_contract: Option<chrono_harness::verified_verifier::OutputContract>,
+    pub output_contract: Option<OutputContract>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

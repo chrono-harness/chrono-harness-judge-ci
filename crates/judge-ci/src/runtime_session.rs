@@ -47,9 +47,17 @@ impl Session {
     }
 
     pub(crate) fn selected_config(root: &Path, path: &str) -> Result<Value, String> {
+        Self::one(root, "selected-host-config-v1", &path)
+    }
+    pub fn one<T: DeserializeOwned>(
+        root: &Path,
+        operation: &str,
+        input: &impl serde::Serialize,
+    ) -> Result<T, String> {
+        let encoded = serde_json::to_vec(input).map_err(|e|e.to_string())?;
         let program = crate::observed::installed(root)?;
         let mut child = crate::storage::command(&program, &program)?
-            .arg("selected-host-config-v1")
+            .arg(operation)
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -57,8 +65,18 @@ impl Session {
             .spawn()
             .map_err(|e| e.to_string())?;
         let stdin = child.stdin.take().unwrap();
-        let sent = serde_json::to_writer(stdin, path);
-        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+        // Drain output while sending large requests even when the peer exits early.
+        let (sent, output) = std::thread::scope(|scope| {
+            let writer = scope.spawn(move || {
+                let mut stdin = stdin;
+                stdin.write_all(&encoded)
+            });
+            let output = child.wait_with_output().map_err(|e| e.to_string());
+            Ok::<_, String>((
+                writer.join().map_err(|_| "runner input writer panicked")?,
+                output?,
+            ))
+        })?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).trim_end().into());
         }

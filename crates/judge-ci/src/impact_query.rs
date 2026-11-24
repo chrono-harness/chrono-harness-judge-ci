@@ -1,6 +1,5 @@
 use crate::Policy;
 use crate::observed::CommandSpec;
-use chrono_harness::wire::Finding;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::{
@@ -13,6 +12,16 @@ pub(crate) struct Edge {
     pub from: String,
     pub kind: String,
     pub to: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Finding {
+    code: String,
+    level: String,
+    message: String,
+    delta_refs: Vec<String>,
+    causes: Vec<String>,
 }
 
 #[derive(Deserialize)]

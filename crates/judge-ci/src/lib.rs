@@ -158,7 +158,7 @@ struct Snapshot {
             String,
             String,
             Vec<String>,
-            Option<chrono_harness::verified_verifier::OutputContract>,
+            Option<route_wire::OutputContract>,
         ),
     >,
     edges: BTreeSet<Edge>,
@@ -197,14 +197,23 @@ fn strings(v: &Value) -> Result<Vec<String>, String> {
 }
 #[cfg(not(verus_keep_ghost))]
 fn id(s: &str) -> Result<(), String> {
-    if !chrono_harness::verified_identifiers::valid_id(s.as_bytes()) {
+    if s.is_empty()
+        || !s
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
         return Err(format!("invalid ID {s:?}"));
     }
     Ok(())
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn full_oid(s: &str) -> Result<(), String> {
-    if !chrono_harness::verified_identifiers::valid_oid(s.as_bytes()) {
+    if !matches!(s.len(), 40 | 64)
+        || !s
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || s.bytes().all(|byte| byte == b'0')
+    {
         return Err(format!("expected full nonzero lowercase OID: {s}"));
     }
     Ok(())
@@ -548,9 +557,15 @@ fn snapshot(
                 .ok_or("actions object required")?
                 .values()
             {
-                let action: chrono_harness::verified_verifier::RegisteredAction =
+                let action: route_wire::RegisteredAction =
                     serde_json::from_value(a.clone()).map_err(|e| e.to_string())?;
-                chrono_harness::verified_verifier::validate_contract(&action.output_contract)?;
+                if let Some(contract) = &action.output_contract {
+                    crate::runtime_session::Session::one::<()>(
+                        root,
+                        "compiler-output-v1",
+                        &object!({"operation":"validate-contract","contract":contract}),
+                    )?;
+                }
                 let operation = action.operation.as_str();
                 id(operation)?;
                 let tool = action.tool.as_str();
@@ -725,19 +740,32 @@ fn snapshot(
 }
 #[cfg(not(verus_keep_ghost))]
 fn clean(reader: &Reader, root: &Path, candidate: &str, p: &Policy) -> Result<(), String> {
-    let checkout: chrono_harness::verified_status::Checkout =
-        reader.checkout(root, &p.artifacts)?;
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Checkout {
+        head: String,
+        tracked: Vec<String>,
+        untracked: Vec<String>,
+        index_flags: Vec<Value>,
+    }
+    #[derive(Deserialize)]
+    struct IndexIssue {
+        path: String,
+        reason: String,
+    }
+    let checkout: Checkout = reader.checkout(root, &p.artifacts)?;
     if checkout.head != candidate {
         return Err("checkout HEAD does not equal candidate".into());
     }
-    let flags = checkout.index_flags;
-    if let Some((entry, reason)) =
-        chrono_harness::verified_status::first_unsupported_index_flag(&flags)
-    {
+    let issue: Option<IndexIssue> = crate::runtime_session::Session::query(
+        root,
+        "judge-evidence-v1",
+        object!({"operation":"checkout-index-issue","flags":checkout.index_flags}),
+    )?;
+    if let Some(issue) = issue {
         return Err(format!(
             "unsupported index flags ({}): {}",
-            reason.message(),
-            entry.path
+            issue.reason, issue.path
         ));
     }
     if !checkout.tracked.is_empty() {
@@ -1130,8 +1158,8 @@ fn full_collection_at(
         object!({"mode":"prepared-collection","config":profile,"base":base,"candidate":candidate,
             "context":context,"scope":scope,"judge":"routes"}),
     )?;
-    let req: chrono_harness::wire::Request =
-        serde_json::from_value(header["request"].take()).map_err(|error| error.to_string())?;
+    let original = header["request"].take();
+    let req = full_registration::Coordinates::deserialize(&original).map_err(|e| e.to_string())?;
     let cfg = header["config"].take();
     let result = (|| {
         let declared = cfg["runner"]["path"]
@@ -1153,14 +1181,24 @@ fn full_collection_at(
         {
             return Err("E_EXECUTABLE_BINDING: registered collection runner differs".into());
         }
-        req.validate()?;
+        crate::runtime_session::Session::query::<()>(
+            root,
+            "judge-evidence-v1",
+            object!({"operation":"validate-request","request":original}),
+        )?;
         let query = Query::full(root, &cfg)?;
         let mut evidence = source_observations::GitEvidence::default();
-        let (plans, migration) =
-            full_registration::collection(&req, &reader, &query, &mut evidence, originals)?;
+        let (plans, migration) = full_registration::collection(
+            &req,
+            &original,
+            &reader,
+            &query,
+            &mut evidence,
+            originals,
+        )?;
         let old = &plans.previous;
         let r = &plans.candidate;
-        let mut collection = object!({"request":req,"migration":migration});
+        let mut collection = object!({"request":original,"migration":migration});
         let impact: impact_query::Obligations =
             query.read("chrono-judge-filemap", "collection-tests-v1", &collection)?;
         impact.require_valid("blocked full obligations")?;
@@ -1692,39 +1730,11 @@ fn inventory_profile(
                     &values,
                     &identity.effective_path,
                 )?;
-                let c = chrono_harness::prepared::declaration(cfg)?;
-                let mut argv = c.argv;
-                if let Some(scope) = &req.scope {
-                    match scope {
-                        chrono_harness::units::Scope::Unit { unit } => {
-                            argv.extend(["--unit".into(), unit.clone()])
-                        }
-                        chrono_harness::units::Scope::Collect { .. } => {
-                            argv.push("--collect".into())
-                        }
-                    }
-                }
-                if admit_entry {
-                    chrono_harness::resolve_invocation(
-                        root,
-                        &req.observations["entry"],
-                        &argv,
-                        &object!({}),
-                    )?;
-                }
-                if admit_entry {
-                    chrono_harness::prepared::validate_binding(
-                        root,
-                        cfg,
-                        &req.config_path,
-                        None,
-                        &req.candidate,
-                        req.initial,
-                        &req.scope,
-                        None,
-                        &req.observations["preparation"],
-                    )?;
-                }
+                crate::runtime_session::Session::one::<()>(
+                    root,
+                    "check-invocation-v1",
+                    &object!({"mode":"scoped-request","request":req,"config":cfg,"admit_entry":admit_entry}),
+                )?;
                 declarations = cfg["tools"].clone();
                 environment.clear();
                 for key in cfg["environment"]["inherit"]
@@ -1767,44 +1777,11 @@ fn inventory_profile(
                 &b_identity.effective_path,
             )?;
         }
-        let mut template: Vec<String> =
-            serde_json::from_value(b_config["canonical_check"]["argv"].clone())
-                .map_err(|e| e.to_string())?;
-        if let Some(scope) = &req.scope {
-            if b_config["schema_version"] == 4 {
-                match scope {
-                    chrono_harness::units::Scope::Unit { unit } => {
-                        template.extend(["--unit".into(), unit.clone()])
-                    }
-                    chrono_harness::units::Scope::Collect { .. } => {
-                        template.push("--collect".into())
-                    }
-                }
-            } else {
-                template.extend(scope.argv());
-            }
-        }
-        if admit_entry {
-            chrono_harness::resolve_invocation(
-                root,
-                &req.observations["entry"],
-                &template,
-                &object!({"base":req.base,"candidate":req.candidate}),
-            )?;
-        }
-        if admit_entry && b_config["schema_version"] == 4 {
-            chrono_harness::prepared::validate_binding(
-                root,
-                b_config,
-                &req.config_path,
-                req.base.as_deref(),
-                &req.candidate,
-                req.initial,
-                &req.scope,
-                None,
-                &req.observations["preparation"],
-            )?;
-        }
+        crate::runtime_session::Session::one::<()>(
+            root,
+            "check-invocation-v1",
+            &object!({"mode":"scoped-request","request":req,"config":b_config,"admit_entry":admit_entry}),
+        )?;
         environment.clear();
         for key in b_config["environment"]["inherit"]
             .as_array()
@@ -2125,6 +2102,9 @@ fn evaluate(
             &plan.operations,
             &new.filemap,
         )?;
+        let compact = if outcome.executed.iter().chain(&outcome.blocked).any(|row| row.receipt.is_some()) {
+            Some(crate::storage::Storage::open(&req.host_root)?)
+        } else {None};
         for result in outcome.executed.iter().chain(&outcome.blocked) {
             results.push(verified_collection::operation_result_with_sources(
                 result.operation.as_str(),
@@ -2139,10 +2119,11 @@ fn evaluate(
             ));
             if let Some(receipt) = &result.receipt {
                 let mut original = serde_json::to_value(receipt).map_err(|e| e.to_string())?;
-                original["process"] = chrono_harness::full::compact_process(&original["process"])?;
+                original["process"] = compact.as_ref().ok_or("missing original process session")?.call(object!({"operation":"compact-process","process":original["process"]}))?;
                 executed.push(object!({"operation":result.operation,"receipt":original}));
             }
         }
+        if let Some(storage) = compact { storage.close()?; }
         for (old, replacement) in removed
             .iter()
             .filter_map(|(old, to)| to.as_ref().map(|to| (old, to)))
