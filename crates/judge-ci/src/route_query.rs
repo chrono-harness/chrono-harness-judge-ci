@@ -212,7 +212,7 @@ fn read<T: serde::de::DeserializeOwned>(
     let digest = crate::files::file_identity(program)?.0;
     // Each tool observation has its own registered bounds. Join the complete
     // preparation even when a plan must observe several tools in sequence.
-    let mut command = crate::observed::command(&crate::observed::installed(root)?, program);
+    let mut command = crate::storage::command(&crate::observed::installed(root)?, program)?;
     command
         .arg(operation)
         .current_dir(root)

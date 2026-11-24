@@ -81,9 +81,13 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
         } => {
             crate::files::no_symlink_parents(root, &profile)?;
             crate::files::no_symlink_parents(root, &context)?;
-            let config = chrono_harness::load_selected_config(root, &profile)?;
-            let block = chrono_harness::units::full_execution_units(&config)?
-                .ok_or("full provider requires registered full units")?;
+            let config = crate::runtime_session::Session::selected_config(root, &profile)?;
+            let block: Option<Value> = crate::runtime_session::Session::query(
+                root,
+                "judge-evidence-v1",
+                object!({"operation":"full-execution-units","profile":config}),
+            )?;
+            let block = block.ok_or("full provider requires registered full units")?;
             let registered: BTreeMap<String, chrono_harness::units::Unit> =
                 serde_json::from_value(block["units"].clone()).map_err(|e| e.to_string())?;
             let limit = block["collection_limits"]["report_bytes"]

@@ -74,7 +74,7 @@ pub(super) fn run<T>(
 ) -> Result<T, String> {
     let start = || -> Result<_, String> {
         let path = crate::files::resolve_program(root, program, None)?;
-        let mut command = crate::observed::command(&crate::observed::installed(root)?, &path);
+        let mut command = crate::storage::command(&crate::observed::installed(root)?, &path)?;
         command
             .current_dir(root)
             .arg("trace-events-v1")
@@ -209,7 +209,7 @@ pub fn cli(run: impl FnOnce() -> u8) -> u8 {
         };
         let operation = std::env::args_os().nth(1).unwrap_or_default();
         let mut command = if std::env::var_os("CHRONO_PROCESS_FDS").is_some() {
-            crate::observed::command(&crate::observed::installed(root)?, &program)
+            crate::storage::command(&crate::observed::installed(root)?, &program)?
         } else {
             std::process::Command::new(program)
         };
@@ -224,7 +224,7 @@ pub fn cli(run: impl FnOnce() -> u8) -> u8 {
             .spawn()
             .map_err(|e| e.to_string())?;
         let mut response = BufReader::new(child.stdout.take().unwrap());
-        let mut stream = BufWriter::new(child.stdin.take().unwrap());
+        let stream = BufWriter::new(child.stdin.take().unwrap());
         fn send(stream: &mut impl Write, value: &Value) -> io::Result<()> {
             serde_json::to_writer(&mut *stream, value)?;
             stream.write_all(b"\n")?;

@@ -143,7 +143,7 @@ pub(super) fn execute(
         },
         diagnostics,
     };
-    let mut command = crate::observed::command(&crate::observed::installed(root)?, &projects);
+    let mut command = crate::storage::command(&crate::observed::installed(root)?, &projects)?;
     command
         .arg("execute-plan-v1")
         .env_clear()

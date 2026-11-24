@@ -91,7 +91,7 @@ pub(crate) fn run(
     digest: &str,
     timeout: Duration,
 ) -> Result<Observation, String> {
-    let mut child = command(runner, runner)
+    let mut child = crate::storage::command(runner, runner)?
         .arg("observed-command-v1")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -146,11 +146,4 @@ pub(crate) fn installed(root: &Path) -> Result<PathBuf, String> {
         return Ok(local);
     }
     crate::files::resolve_program(root, "chrono-harness", None)
-}
-
-/// The exec relay preserves inherited ownership descriptors and program identity.
-pub(crate) fn command(runner: &Path, program: &Path) -> std::process::Command {
-    let mut cmd = std::process::Command::new(runner);
-    cmd.arg("exec-with-descriptors-v1").arg(program);
-    cmd
 }

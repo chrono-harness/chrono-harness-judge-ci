@@ -64,8 +64,10 @@ fn read(
     if !policy.artifacts.iter().any(|a| path.starts_with(a)) {
         return Err("collection input is not a declared artifact".into());
     }
-    let _use = chrono_harness::retained_artifacts::retention::read_guard(root, path)?;
-    let resolved = crate::files::no_symlink_parents(root, path)?;
+    let storage = crate::storage::Storage::open(root)?;
+    storage.call::<()>(object!({"operation":"retain-read","path":path}))?;
+    let resolved: std::path::PathBuf =
+        storage.call(object!({"operation":"checked-path","path":path}))?;
     let meta = fs::symlink_metadata(&resolved).map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err(format!("collection input must be a regular file: {path}"));
@@ -242,7 +244,32 @@ pub(super) fn collect(
     declarations: &Value,
     environment_policy: &Value,
 ) -> Result<Response, String> {
-    let _read_scope = chrono_harness::retained_artifacts::retention::read_scope(&req.host_root)?;
+    crate::storage::Storage::with(&req.host_root, || {
+        collect_checked(
+            req,
+            reader,
+            manifest,
+            config,
+            snapshot,
+            selected,
+            methods,
+            declarations,
+            environment_policy,
+        )
+    })
+}
+
+fn collect_checked(
+    req: &Request,
+    reader: &Reader,
+    manifest: &str,
+    config: &CheckConfig,
+    snapshot: &Snapshot,
+    selected: &BTreeSet<String>,
+    methods: &BTreeMap<String, Vec<Method>>,
+    declarations: &Value,
+    environment_policy: &Value,
+) -> Result<Response, String> {
     let p = &snapshot.policy;
     let source_io = super::source_binding::CandidateIo {
         reader,

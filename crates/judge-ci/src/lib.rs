@@ -30,7 +30,11 @@ mod route_query;
 #[cfg(not(verus_keep_ghost))]
 mod route_wire;
 #[cfg(not(verus_keep_ghost))]
+mod runtime_session;
+#[cfg(not(verus_keep_ghost))]
 mod source_observations;
+#[cfg(not(verus_keep_ghost))]
+mod storage;
 #[cfg(not(verus_keep_ghost))]
 mod trace_source;
 pub mod verified_consumption;
