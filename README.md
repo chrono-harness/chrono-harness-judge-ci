@@ -53,3 +53,14 @@ scoped CI 用候选宿主的 chrono-judge-registration 执行 `scoped-execution-
 CI 的 Rust 产品及测试清单不再依赖 registration 源码。历史 Rust 再导出的快照、保留记录和引用语法函数由 registration 提供，原生用例和适用证明在该仓库执行。CI 接收公开命令的结果并保留自己的业务选择与回执。
 
 完整调度从 PATH 中的 `chrono-harness git-facts-v1` 读取基线和候选登记。两次配置核验、两端快照和 Git 进程记录来自同一个已安装的 runner 会话。CI 使用候选快照指定的有效配置选择超时和输出限额。
+
+## 单元汇总与准备条件的证明
+
+在本仓运行 `mise exec -- ./check.sh`。该命令构建实际库、运行原生测试，对以下 Verus 根分别调用固定验证器，并以编译器生成的依赖清单、执行回执和原始输出逐项核对。
+
+| 生产根和使用方 | 判定 | 独立预期 |
+| --- | --- | --- |
+| `verified_collection.rs`，由 `collect.rs` 和 `lib.rs` 调用 | 由单元结果归约汇总状态，核对所选操作、结果集合及执行状态 | `judge-ci-tests/tests/verified_collection.rs` |
+| `verified_consumption.rs`，由 `consumption.rs` 调用 | 对照登记，核对准备步骤的命令和验证前置操作 | `judge-ci-tests/tests/verified_consumption.rs` |
+
+两组测试根也由同一入口独立验证。GitHub 提供的 run、attempt、所选单元及下载归 `chrono-ci` 负责。`requirements-v1` 的 `unit-originals` 根据宿主配置、传输位置与摘要读取原报告及其准备收据。
