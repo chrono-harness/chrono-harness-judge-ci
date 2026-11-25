@@ -1,5 +1,8 @@
 //! Bounded original query bytes and exit status from the host process owner.
 use crate::files::sha256;
+use crate::verified_collection::{
+    ObservedFrame, observed_frame, observed_process_matches, observed_stream_matches,
+};
 use serde::{Deserialize, Serialize};
 
 use std::{
@@ -47,35 +50,35 @@ fn receive(mut input: impl Read, limit: usize) -> Result<Observation, String> {
             .map_err(|e| format!("incomplete observed command: {e}"))?;
         let size = usize::try_from(u64::from_be_bytes(header[1..].try_into().unwrap()))
             .map_err(|_| "observed length overflow")?;
-        let stream = match header[0] {
-            b'O' => &mut stdout,
-            b'E' => &mut stderr,
-            b'T' => {
-                if size > 2 * 1024 * 1024 {
-                    return Err("oversize observed terminal record".into());
+        let (stream, end) =
+            match observed_frame(header[0], size, stdout.len(), stderr.len(), limit)? {
+                ObservedFrame::Stdout(end) => (&mut stdout, end),
+                ObservedFrame::Stderr(end) => (&mut stderr, end),
+                ObservedFrame::Terminal(size) => {
+                    let mut bytes = vec![0u8; size];
+                    input.read_exact(&mut bytes).map_err(|e| e.to_string())?;
+                    let mut p: Observation = crate::decode(&bytes)?;
+                    let trailing = input.read(&mut [0]).map_err(|e| e.to_string())?;
+                    if !observed_stream_matches(
+                        trailing,
+                        p.stdout_size,
+                        stdout.len(),
+                        p.stderr_size,
+                        stderr.len(),
+                        &p.stdout_sha256,
+                        &sha256(&stdout),
+                        &p.stderr_sha256,
+                        &sha256(&stderr),
+                    ) {
+                        return Err("observed command stream identity differs".into());
+                    }
+                    p.stdout_bytes = stdout;
+                    p.stderr_bytes = stderr;
+                    return Ok(p);
                 }
-                let mut bytes = vec![0u8; size];
-                input.read_exact(&mut bytes).map_err(|e| e.to_string())?;
-                let mut p: Observation = crate::decode(&bytes)?;
-                if input.read(&mut [0]).map_err(|e| e.to_string())? != 0
-                    || p.stdout_size != stdout.len()
-                    || p.stderr_size != stderr.len()
-                    || p.stdout_sha256 != sha256(&stdout)
-                    || p.stderr_sha256 != sha256(&stderr)
-                {
-                    return Err("observed command stream identity differs".into());
-                }
-                p.stdout_bytes = stdout;
-                p.stderr_bytes = stderr;
-                return Ok(p);
-            }
-            _ => return Err("unknown observed command frame".into()),
-        };
-        if size > limit.saturating_sub(stream.len()) {
-            return Err("observed output exceeds command bound".into());
-        }
+            };
         let offset = stream.len();
-        stream.resize(offset + size, 0);
+        stream.resize(end, 0);
         input
             .read_exact(&mut stream[offset..])
             .map_err(|e| e.to_string())?;
@@ -131,10 +134,7 @@ pub(crate) fn run(
     }
     sent.map_err(|_| "observed input writer panicked")??;
     let p = received?;
-    if p.launcher_pid != Some(launcher)
-        || p.child_pid.is_none_or(|pid| pid == 0)
-        || p.sha256 != digest
-    {
+    if !observed_process_matches(p.launcher_pid, launcher, p.child_pid, &p.sha256, digest) {
         return Err("observed process identity differs".into());
     }
     Ok(p)
