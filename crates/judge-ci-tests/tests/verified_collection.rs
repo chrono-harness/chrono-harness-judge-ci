@@ -12,6 +12,26 @@ use expectation::expect;
 use vstd::prelude::*;
 
 verus! {
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn collection_size_accepts_exact_bytes_and_observes_growth_beyond_the_limit() {
+    let empty = policy::bounded_original(Vec::new(), 0);
+    expect(empty.is_ok());
+    let mut bytes = Vec::new(); bytes.push(97u8); bytes.push(0u8);
+    let exact = policy::bounded_original(bytes, 2);
+    expect(exact.is_ok());
+    let returned = exact.unwrap();
+    expect(returned.len() == 2); expect(returned[0] == 97); expect(returned[1] == 0);
+    let too_long = policy::bounded_original(returned, 1);
+    match too_long { Err(size) => expect(size == 2), Ok(_) => expect(false) }
+    let zero_cap = policy::original_read_cap(0);
+    let last_cap = policy::original_read_cap(u64::MAX - 1);
+    let full_cap = policy::original_read_cap(u64::MAX);
+    let exact_size = policy::original_size_allowed(u64::MAX, u64::MAX);
+    let grew = policy::original_size_allowed(3, 2);
+    expect(zero_cap == 1 && last_cap == u64::MAX && full_cap == u64::MAX && exact_size && !grew);
+}
+
+
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn unit_originals_bind_profile_path_and_report_bytes() {

@@ -7,6 +7,28 @@ use result_types::{CheckResult, Status};
 
 verus! {
 
+/// Read one extra byte to detect growth after metadata observation.
+pub fn original_read_cap(limit: u64) -> (cap: u64)
+    ensures cap == if limit < u64::MAX { (limit + 1) as u64 } else { u64::MAX },
+{
+    if limit == u64::MAX { limit } else { limit + 1 }
+}
+
+pub fn original_size_allowed(length: u64, limit: u64) -> (allowed: bool)
+    ensures allowed == (length <= limit),
+{ length <= limit }
+
+/// Return the unchanged bytes, or the length actually read when the input exceeded the limit.
+pub fn bounded_original(bytes: Vec<u8>, limit: u64) -> (result: Result<Vec<u8>, usize>)
+    ensures match result {
+        Ok(data) => bytes@.len() <= limit && data@ == bytes@,
+        Err(size) => bytes@.len() > limit && size == bytes@.len(),
+    },
+{
+    let size = bytes.len();
+    if (size as u64) <= limit { Ok(bytes) } else { Err(size) }
+}
+
 /// Identifies the exact profile before its bytes can be decoded.
 pub fn profile_matches(observed: &str, declared: &str) -> (ok: bool)
     ensures ok == (observed@ == declared@),
