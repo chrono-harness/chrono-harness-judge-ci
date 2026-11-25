@@ -35,6 +35,29 @@ pub fn admitted_report<'a>(bytes: &'a [u8], observed: &str, declared: &str)
     if <&str>::exec_eq(observed, declared) { Some(bytes) } else { None }
 }
 
+/// Preserve the receipt and forward its original stdout only when a passed
+/// operation declares compiler output. Other present receipts carry no stdout.
+pub fn binding_original<'a, T>(
+    state: &str, compiler_output: bool, original: Option<(T, &'a [u8])>,
+) -> (out: Option<(T, &'a [u8])>)
+    ensures match (original, out) {
+        (None, None) => true,
+        (Some((receipt, bytes)), Some((identity, sent))) => identity == receipt
+            && if compiler_output && state@ == "passed"@ { sent == bytes } else { sent.len() == 0 },
+        _ => false,
+    },
+{
+    match original {
+        None => None,
+        Some((receipt, raw)) => {
+            let stdout: &[u8] = if compiler_output {
+                match admitted_report(raw, state, "passed") { Some(bytes) => bytes, None => &[] }
+            } else { &[] };
+            Some((receipt, stdout))
+        },
+    }
+}
+
 /// A plan with missing inputs stays blocked before any route query.
 pub fn can_validate_selected_plan(blocked: &[String]) -> (ready: bool)
     ensures ready == (blocked.len() == 0),

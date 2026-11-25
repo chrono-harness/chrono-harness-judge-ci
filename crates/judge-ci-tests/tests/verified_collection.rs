@@ -30,6 +30,26 @@ fn unit_originals_bind_profile_path_and_report_bytes() {
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn binding_forwards_only_the_compiler_stdout_on_its_original_receipt() {
+    proof { reveal_strlit("passed"); reveal_strlit("failed"); assert("passed"@[0] != "failed"@[0]); }
+    let bytes = [0xffu8, 0u8, 8u8];
+    let absent = policy::binding_original::<u32>("passed", true, None);
+    expect(absent.is_none());
+    let good = policy::binding_original("passed", true, Some((19u32, &bytes))).unwrap();
+    expect(good.0 == 19 && good.1.len() == 3);
+    expect(good.1[0] == 0xff && good.1[1] == 0 && good.1[2] == 8);
+    let failed = policy::binding_original("failed", true, Some((23u32, &bytes))).unwrap();
+    expect(failed.0 == 23 && failed.1.is_empty());
+    let ordinary = policy::binding_original("passed", false, Some((29u32, &bytes))).unwrap();
+    expect(ordinary.0 == 29 && ordinary.1.is_empty());
+    let blocked = policy::binding_original("failed", false, Some((31u32, &bytes))).unwrap();
+    expect(blocked.0 == 31 && blocked.1.is_empty());
+    let empty: &[u8] = &[];
+    let no_bytes = policy::binding_original("passed", true, Some((37u32, empty))).unwrap();
+    expect(no_bytes.0 == 37 && no_bytes.1.is_empty());
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn registered_action_references_require_the_real_tool_with_no_profile_fallback() {
     let missing = policy::action_tool_allowed(true, false, false);
     let stale_copy = policy::action_tool_allowed(true, false, true);

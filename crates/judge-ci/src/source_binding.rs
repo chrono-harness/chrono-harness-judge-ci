@@ -2,6 +2,7 @@
 use crate::{
     route_wire::{Operation, Receipt},
     scheduling_git::Reader,
+    verified_collection::binding_original,
 };
 use serde_json::{Value, json};
 use std::{collections::BTreeSet, path::Path};
@@ -49,9 +50,16 @@ impl<'a> Binding<'a> {
         operation: &str,
         receipt: Option<&Receipt>,
     ) -> Result<(), String> {
-        let original = receipt.map(|r| {
-            let stdout = if state == "passed" && self.requires_compiler_output(operation) { r.process.stdout_bytes.as_slice() } else { &[] };
-            json!({"operation":r.operation,"argv":r.process.argv,"stdout":stdout,"exit":r.process.exit_code,"failed":r.process.failure.is_some(),"dependency":r.compiler_dependency,"artifact":r.compiler_artifact})
+        let original = binding_original(
+            state,
+            self.requires_compiler_output(operation),
+            receipt.map(|r| (r, r.process.stdout_bytes.as_slice())),
+        ).map(|(r, stdout)| {
+            json!({
+                "operation": r.operation, "argv": r.process.argv, "stdout": stdout,
+                "exit": r.process.exit_code, "failed": r.process.failure.is_some(),
+                "dependency": r.compiler_dependency, "artifact": r.compiler_artifact
+            })
         });
         self.reader.call(self.root,json!({"op":"bind-operation-output","state":state,"operation":operation,"original":original}))
     }
