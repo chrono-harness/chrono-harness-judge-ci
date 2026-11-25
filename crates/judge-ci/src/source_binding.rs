@@ -54,7 +54,8 @@ impl<'a> Binding<'a> {
             state,
             self.requires_compiler_output(operation),
             receipt.map(|r| (r, r.process.stdout_bytes.as_slice())),
-        ).map(|(r, stdout)| {
+        )
+        .map(|(r, stdout)| {
             json!({
                 "operation": r.operation, "argv": r.process.argv, "stdout": stdout,
                 "exit": r.process.exit_code, "failed": r.process.failure.is_some(),
