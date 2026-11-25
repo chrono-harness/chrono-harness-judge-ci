@@ -36,3 +36,37 @@ fn successive_diagnostic_sessions_each_describe_replayed_project_metadata() {
 fn receiver() -> TracingEventReceiver {
     TracingEventReceiver::new(Default::default(), Default::default(), Default::default())
 }
+
+#[test]
+fn project_diagnostics_forward_only_original_coherent_wake_notices() {
+    let base = json!({"schema":"chrono-maintenance-request/v1","reason":"retention-complete","accepted":true,"status":"requested",
+        "round_completion":"not-established","disposal":"not-attempted","responsibility":"existing-owner-state",
+        "activation_root":"/checkout","socket":"/checkout/.chrono-harness/state/s","policy_sha256":"a".repeat(64)});
+    let line = |value: &serde_json::Value| format!("W_MAINTENANCE_ACTIVATION: {value}\n");
+    let mut failure = base.clone();
+    failure["status"] = json!("wake-failed");
+    failure["accepted"] = json!(false);
+    failure["error"] = json!("path must be shorter than SUN_LEN");
+    let good = format!("{}{}", line(&base), line(&failure));
+    let mut malformed = base.clone();
+    malformed["accepted"] = json!(false);
+    let mut unknown = base.clone();
+    unknown["extra"] = json!("diagnostic");
+    let mut weak = base.clone();
+    weak["policy_sha256"] = json!("missing");
+    let bad = format!(
+        "{}{}{}other diagnostic\nW_MAINTENANCE_ACTIVATION: broken JSON\n",
+        line(&malformed),
+        line(&unknown),
+        line(&weak)
+    );
+    let mut output = Vec::new();
+    let mut errors = Vec::new();
+    let input = format!("{good}{bad}chrono-trace-v1 broken\n");
+    let remaining =
+        chrono_judge_ci::receive_project_diagnostics(input.as_bytes(), &mut output, &mut errors)
+            .unwrap();
+    assert_eq!(output, good.as_bytes());
+    assert_eq!(remaining, bad.as_bytes());
+    assert_eq!(errors.len(), 1);
+}
