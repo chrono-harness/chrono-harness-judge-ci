@@ -7,6 +7,57 @@ use result_types::{CheckResult, Status};
 
 verus! {
 
+/// A data frame carries the permitted new stream length; a terminal carries its JSON length.
+pub enum ObservedFrame { Stdout(usize), Stderr(usize), Terminal(usize) }
+
+pub fn observed_frame(tag: u8, length: usize, stdout: usize, stderr: usize, limit: usize)
+    -> (result: Result<ObservedFrame, &'static str>)
+    requires stdout <= limit, stderr <= limit,
+    ensures match result {
+        Ok(ObservedFrame::Stdout(end)) => tag == b'O' && end as int == stdout + length && end <= limit,
+        Ok(ObservedFrame::Stderr(end)) => tag == b'E' && end as int == stderr + length && end <= limit,
+        Ok(ObservedFrame::Terminal(size)) => tag == b'T' && size == length && length <= 2097152,
+        Err(e) => if tag == b'O' || tag == b'E' {
+            e@ == "observed output exceeds command bound"@
+                && (if tag == b'O' { stdout } else { stderr }) as int + length > limit
+        } else if tag == b'T' {
+            e@ == "oversize observed terminal record"@ && length > 2097152
+        } else { e@ == "unknown observed command frame"@ }
+    },
+{
+    match tag {
+        b'O' if length <= limit - stdout => Ok(ObservedFrame::Stdout(stdout + length)),
+        b'E' if length <= limit - stderr => Ok(ObservedFrame::Stderr(stderr + length)),
+        b'O' | b'E' => Err("observed output exceeds command bound"),
+        b'T' if length <= 2 * 1024 * 1024 => Ok(ObservedFrame::Terminal(length)),
+        b'T' => Err("oversize observed terminal record"),
+        _ => Err("unknown observed command frame"),
+    }
+}
+
+/// The first byte after a terminal record must be EOF. The lengths and SHA-256 strings
+/// observed at the reader must agree with those declared by the producer.
+pub fn observed_stream_matches(
+    trailing: usize, declared_out: usize, actual_out: usize, declared_err: usize, actual_err: usize,
+    declared_out_sha: &str, actual_out_sha: &str, declared_err_sha: &str, actual_err_sha: &str,
+) -> (ok: bool)
+    ensures ok == (trailing == 0 && declared_out == actual_out && declared_err == actual_err
+        && declared_out_sha@ == actual_out_sha@ && declared_err_sha@ == actual_err_sha@),
+{
+    trailing == 0 && declared_out == actual_out && declared_err == actual_err
+        && <&str>::exec_eq(declared_out_sha, actual_out_sha)
+        && <&str>::exec_eq(declared_err_sha, actual_err_sha)
+}
+
+pub fn observed_process_matches(launcher: Option<u32>, expected: u32, child: Option<u32>,
+    digest: &str, expected_digest: &str) -> (ok: bool)
+    ensures ok == (launcher == Some(expected) && child.is_some() && child != Some(0)
+        && digest@ == expected_digest@),
+{
+    matches!(launcher, Some(pid) if pid == expected) && matches!(child, Some(pid) if pid != 0)
+        && <&str>::exec_eq(digest, expected_digest)
+}
+
 /// Read one extra byte to detect growth after metadata observation.
 pub fn original_read_cap(limit: u64) -> (cap: u64)
     ensures cap == if limit < u64::MAX { (limit + 1) as u64 } else { u64::MAX },

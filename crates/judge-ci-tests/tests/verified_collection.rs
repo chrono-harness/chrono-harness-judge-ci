@@ -13,6 +13,36 @@ use vstd::prelude::*;
 
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn observed_frames_separate_the_streams_and_enforce_each_limit() {
+    use policy::ObservedFrame::{Stdout,Stderr,Terminal};
+    expect(matches!(policy::observed_frame(b'O', 4, 1, 5, 5), Ok(Stdout(5))));
+    expect(matches!(policy::observed_frame(b'E', 3, 5, 1, 5), Ok(Stderr(4))));
+    expect(matches!(policy::observed_frame(b'O', 0, usize::MAX, 0, usize::MAX), Ok(Stdout(_))));
+    expect(policy::observed_frame(b'O', 1, usize::MAX, 0, usize::MAX).is_err());
+    expect(policy::observed_frame(b'E', 1, 0, 1, 1).is_err());
+    expect(matches!(policy::observed_frame(b'T', 2097152, 0, 0, 0), Ok(Terminal(2097152))));
+    expect(policy::observed_frame(b'T', 2097153, 0, 0, 0).is_err());
+    expect(policy::observed_frame(0, 0, 0, 0, 0).is_err());
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn observed_terminal_binds_both_originals_launcher_child_and_program() {
+    proof { reveal_strlit("x"); reveal_strlit(""); assert("x"@.len() != ""@.len()); }
+    expect(policy::observed_stream_matches(0, 2, 2, 0, 0, "x", "x", "", ""));
+    expect(!policy::observed_stream_matches(1, 2, 2, 0, 0, "x", "x", "", ""));
+    expect(!policy::observed_stream_matches(0, 1, 2, 0, 0, "x", "x", "", ""));
+    expect(!policy::observed_stream_matches(0, 2, 2, 1, 0, "x", "x", "", ""));
+    expect(!policy::observed_stream_matches(0, 2, 2, 0, 0, "", "x", "", ""));
+    expect(!policy::observed_stream_matches(0, 2, 2, 0, 0, "x", "x", "", "x"));
+    expect(policy::observed_process_matches(Some(123), 123, Some(5), "x", "x"));
+    expect(!policy::observed_process_matches(None, 123, Some(5), "x", "x"));
+    expect(!policy::observed_process_matches(Some(456), 123, Some(5), "x", "x"));
+    expect(!policy::observed_process_matches(Some(123), 123, None, "x", "x"));
+    expect(!policy::observed_process_matches(Some(123), 123, Some(0), "x", "x"));
+    expect(!policy::observed_process_matches(Some(123), 123, Some(5), "", "x"));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn collection_size_accepts_exact_bytes_and_observes_growth_beyond_the_limit() {
     let empty = policy::bounded_original(Vec::new(), 0);
     expect(empty.is_ok());
