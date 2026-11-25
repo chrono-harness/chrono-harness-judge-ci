@@ -11,8 +11,9 @@ if [[ $# -ne 1 || $1 != --native ]]; then
   echo 'usage: ./check.sh [--native]' >&2
   exit 2
 fi
-mkdir -p target
-scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
+scratch_root=$(pwd -P)/.chrono-harness/state/native-check
+mkdir -p "$scratch_root"
+scratch=$(mktemp -d "$scratch_root/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
@@ -47,10 +48,10 @@ collection_tests_operation=verify.ci-collection-tests
 preparation_operation=verify.ci-preparation
 preparation_tests_operation=verify.ci-preparation-tests
 
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$collection_operation.rlib" "$src/verified_collection.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_operation.rlib" "$src/verified_collection.rs" \
   "$src/result_types.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$collection_tests_operation.rlib" "$tests/verified_collection.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_tests_operation.rlib" "$tests/verified_collection.rs" \
   "$include/verified_collection.rs" "$include/result_types.rs" "$tests/support/expect.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$preparation_operation.rlib" "$src/verified_consumption.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$preparation_tests_operation.rlib" "$tests/verified_consumption.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_operation.rlib" "$src/verified_consumption.rs"
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_tests_operation.rlib" "$tests/verified_consumption.rs" \
   "$include/verified_consumption.rs"
