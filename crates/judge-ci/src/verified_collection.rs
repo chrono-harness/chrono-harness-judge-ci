@@ -51,7 +51,7 @@ pub fn observed_stream_matches(
 
 pub fn observed_process_matches(launcher: Option<u32>, expected: u32, child: Option<u32>,
     digest: &str, expected_digest: &str) -> (ok: bool)
-    ensures ok == (launcher == Some(expected) && child.is_some() && child != Some(0)
+    ensures ok == (launcher == Some(expected) && child.is_some() && child != Some(0u32)
         && digest@ == expected_digest@),
 {
     matches!(launcher, Some(pid) if pid == expected) && matches!(child, Some(pid) if pid != 0)
