@@ -65,19 +65,16 @@ fn read(
     let overflow = |observed| {
         format!("collection input exceeds {limit_name}: {path} ({observed} > {limit} bytes)")
     };
-    if meta.len() > limit {
+    if !verified_collection::original_size_allowed(meta.len(), limit) {
         return Err(overflow(meta.len()));
     }
     let mut bytes = Vec::new();
     fs::File::open(resolved)
         .map_err(|e| e.to_string())?
-        .take(limit + 1)
+        .take(verified_collection::original_read_cap(limit))
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > limit {
-        return Err(overflow(bytes.len() as u64));
-    }
-    Ok(bytes)
+    verified_collection::bounded_original(bytes, limit).map_err(|size| overflow(size as u64))
 }
 
 fn digest(s: &str) -> bool {

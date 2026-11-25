@@ -104,19 +104,17 @@ pub(super) fn read_bounded(root: &Path, path: &str, limit: u64) -> Result<Vec<u8
     storage.call::<()>(json!({"operation":"retain-read","path":path}))?;
     let full: std::path::PathBuf = storage.call(json!({"operation":"checked-path","path":path}))?;
     let meta = fs::symlink_metadata(&full).map_err(|e| e.to_string())?;
-    if !meta.is_file() || meta.len() > limit {
+    if !meta.is_file() || !crate::verified_collection::original_size_allowed(meta.len(), limit) {
         return Err(format!("bounded collection input rejected: {path}"));
     }
     let mut bytes = Vec::new();
     fs::File::open(full)
         .map_err(|e| e.to_string())?
-        .take(limit.saturating_add(1))
+        .take(crate::verified_collection::original_read_cap(limit))
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > limit {
-        return Err(format!("bounded collection input exceeds limit: {path}"));
-    }
-    Ok(bytes)
+    crate::verified_collection::bounded_original(bytes, limit)
+        .map_err(|_| format!("bounded collection input exceeds limit: {path}"))
 }
 
 pub(super) fn with_originals<T: DeserializeOwned>(
