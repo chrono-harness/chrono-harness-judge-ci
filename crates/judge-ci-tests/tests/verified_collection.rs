@@ -13,6 +13,23 @@ use vstd::prelude::*;
 
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn observed_failure_preserves_the_first_unavailable_result() {
+    use policy::{ObservedFailure, finish_observation};
+    let wait = finish_observation::<u8, u8, u8>(Err(13), Err(21), Err(32), Err(45));
+    expect(matches!(wait, Err(ObservedFailure::Transport(13))));
+    let read = finish_observation::<u8, u8, u8>(Ok(false), Err(21), Err(32), Err(45));
+    expect(matches!(read, Err(ObservedFailure::Transport(21))));
+    let child = finish_observation::<u8, u8, u8>(Ok(false), Ok(82), Err(32), Err(45));
+    expect(matches!(child, Err(ObservedFailure::Launcher(82))));
+    let write = finish_observation::<u8, u8, u8>(Ok(true), Ok(82), Err(32), Err(45));
+    expect(matches!(write, Err(ObservedFailure::Transport(32))));
+    let frame = finish_observation::<u8, u8, u8>(Ok(true), Ok(82), Ok(()), Err(45));
+    expect(matches!(frame, Err(ObservedFailure::Transport(45))));
+    let record = finish_observation::<u8, u8, u8>(Ok(true), Ok(82), Ok(()), Ok(95));
+    expect(matches!(record, Ok(95)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn observed_frames_separate_the_streams_and_enforce_each_limit() {
     use policy::ObservedFrame::{Stdout,Stderr,Terminal};
     expect(matches!(policy::observed_frame(79u8, 4, 1, 5, 5), Ok(Stdout(5))));

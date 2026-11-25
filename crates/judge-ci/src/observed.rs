@@ -1,7 +1,8 @@
 //! Bounded original query bytes and exit status from the host process owner.
 use crate::files::sha256;
 use crate::verified_collection::{
-    ObservedFrame, observed_frame, observed_process_matches, observed_stream_matches,
+    ObservedFailure, ObservedFrame, finish_observation, observed_frame, observed_process_matches,
+    observed_stream_matches,
 };
 use serde::{Deserialize, Serialize};
 
@@ -125,15 +126,25 @@ pub(crate) fn run(
         let received = receive(output, spec.output_limit_bytes);
         (received, writer.join(), diagnostic.join())
     });
-    let status = child.wait().map_err(|e| e.to_string())?;
+    let wait = child
+        .wait()
+        .map(|status| status.success())
+        .map_err(|e| e.to_string());
     let diagnostics = diagnostics
-        .map_err(|_| "observed diagnostic reader panicked")?
-        .map_err(|e| e.to_string())?;
-    if !status.success() {
-        return Err(String::from_utf8_lossy(&diagnostics).trim_end().into());
-    }
-    sent.map_err(|_| "observed input writer panicked")??;
-    let p = received?;
+        .map_err(|_| "observed diagnostic reader panicked".to_owned())
+        .and_then(|read| read.map_err(|e| e.to_string()));
+    let written = sent
+        .map_err(|_| "observed input writer panicked".to_owned())
+        .and_then(|write| write);
+    let p =
+        finish_observation(wait, diagnostics, written, received).map_err(
+            |failure| match failure {
+                ObservedFailure::Transport(error) => error,
+                ObservedFailure::Launcher(bytes) => {
+                    String::from_utf8_lossy(&bytes).trim_end().into()
+                }
+            },
+        )?;
     if !observed_process_matches(p.launcher_pid, launcher, p.child_pid, &p.sha256, digest) {
         return Err("observed process identity differs".into());
     }

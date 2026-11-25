@@ -14,6 +14,31 @@ pub const TERMINAL_TAG: u8 = 84; // ASCII T
 
 pub enum ObservedFrame { Stdout(usize), Stderr(usize), Terminal(usize) }
 
+/// Keep launcher diagnostics as their original bytes until the caller needs to display them.
+pub enum ObservedFailure<E, D> { Transport(E), Launcher(D) }
+
+pub fn finish_observation<T, E, D>(
+    wait: Result<bool, E>, diagnostics: Result<D, E>, written: Result<(), E>, received: Result<T, E>,
+) -> (result: Result<T, ObservedFailure<E, D>>)
+    ensures result == match wait {
+        Err(e) => Err(ObservedFailure::Transport(e)),
+        Ok(success) => match diagnostics {
+            Err(e) => Err(ObservedFailure::Transport(e)),
+            Ok(bytes) => if !success { Err(ObservedFailure::Launcher(bytes)) }
+                else { match written {
+                    Err(e) => Err(ObservedFailure::Transport(e)),
+                    Ok(()) => match received { Err(e) => Err(ObservedFailure::Transport(e)), Ok(p) => Ok(p) },
+                } },
+        },
+    },
+{
+    let success = match wait { Err(e) => return Err(ObservedFailure::Transport(e)), Ok(s) => s };
+    let bytes = match diagnostics { Err(e) => return Err(ObservedFailure::Transport(e)), Ok(d) => d };
+    if !success { return Err(ObservedFailure::Launcher(bytes)); }
+    if let Err(e) = written { return Err(ObservedFailure::Transport(e)); }
+    match received { Err(e) => Err(ObservedFailure::Transport(e)), Ok(p) => Ok(p) }
+}
+
 pub fn observed_frame(tag: u8, length: usize, stdout: usize, stderr: usize, limit: usize)
     -> (result: Result<ObservedFrame, &'static str>)
     requires stdout <= limit, stderr <= limit,
