@@ -64,3 +64,15 @@ CI 的 Rust 产品及测试清单不再依赖 registration 源码。历史 Rust 
 | `verified_consumption.rs`，由 `consumption.rs` 调用 | 对照登记，核对准备步骤的命令和验证前置操作 | `judge-ci-tests/tests/verified_consumption.rs` |
 
 两组测试根也由同一入口独立验证。GitHub 提供的 run、attempt、所选单元及下载归 `chrono-ci` 负责。`requirements-v1` 的 `unit-originals` 根据宿主配置、传输位置与摘要读取原报告及其准备收据。
+
+## 本仓本地检查的清理
+
+开发者运行 `mise exec -- ./check.sh` 时，工作树租约覆盖整个检查。准备输入和原报告写入 `.chrono-harness/state/preparation/`，单元结果在 `.chrono-harness/state/admission/`，汇总在 `.chrono-harness/state/collection/`。证明编译库和依赖清单进入 `admission-proofs/`，保留至原生检查读取完毕并交接回执，原生构建使用专属的 `native-check/` 临时目录。需要保留的结果应在当日清理前复制到持久存储。
+
+完成工具安装后，可在主检出的用户 crontab 中登记每日 03:00 的滚动维护。将下方两个绝对路径替换为主检出和本机 `command -v mise` 的实际值。
+
+```cron
+0 3 * * * cd '/path/to/chrono-harness-judge-ci' && '/path/to/mise' exec -- chrono-worktree maintain --host-root . --config .chrono-harness/worktree.json
+```
+
+同一日历批次共用截止时刻。调度器在运行且取得排他租约时回收已登记的空闲目录。首次登记前已有的目录需要核对、转存并显式接管。普通任务工作树在超过 24 小时且唯一源码已保全后可整树回收；仍在使用的原件继续保管。工作树日志和处置报告在一天的窗口及当前使用方结束后滚动。工具包位于 mise 共享安装目录，本仓的 bin/ 只保存链接。

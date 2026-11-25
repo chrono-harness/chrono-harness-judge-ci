@@ -77,6 +77,22 @@
       }
     },
     {
+      "path": ".chrono-harness/cleanup.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".chrono-harness/config.json",
       "owner": "host",
       "surface": "product",
@@ -926,6 +942,7 @@
   "execution_plans": {
     "test:judge-ci-tests": {
       "operations": [
+        "prepare.admission-proof-directory",
         "verify.ci-collection",
         "verify.ci-collection-tests",
         "verify.ci-preparation",

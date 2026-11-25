@@ -15,6 +15,14 @@
       "root": "crates/judge-ci",
       "test_project": "judge-ci-tests",
       "actions": {
+        "prepare_proof_directory": {
+          "operation": "prepare.admission-proof-directory",
+          "tool": "bash",
+          "argv": [
+            "-c",
+            "mkdir -p -- .chrono-harness/state/admission-proofs/"
+          ]
+        },
         "verify_collection": {
           "operation": "verify.ci-collection",
           "tool": "verus",
@@ -26,10 +34,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-collection.rlib,dep-info=.chrono-harness/state/verify.ci-collection.rlib.d",
+            "--emit=link=.chrono-harness/state/admission-proofs/verify.ci-collection.rlib,dep-info=.chrono-harness/state/admission-proofs/verify.ci-collection.rlib.d",
             "crates/judge-ci/src/verified_collection.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-collection.rlib",
+            ".chrono-harness/state/admission-proofs/verify.ci-collection.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -48,10 +56,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-preparation.rlib,dep-info=.chrono-harness/state/verify.ci-preparation.rlib.d",
+            "--emit=link=.chrono-harness/state/admission-proofs/verify.ci-preparation.rlib,dep-info=.chrono-harness/state/admission-proofs/verify.ci-preparation.rlib.d",
             "crates/judge-ci/src/verified_consumption.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-preparation.rlib",
+            ".chrono-harness/state/admission-proofs/verify.ci-preparation.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -89,10 +97,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-collection-tests.rlib,dep-info=.chrono-harness/state/verify.ci-collection-tests.rlib.d",
+            "--emit=link=.chrono-harness/state/admission-proofs/verify.ci-collection-tests.rlib,dep-info=.chrono-harness/state/admission-proofs/verify.ci-collection-tests.rlib.d",
             "crates/judge-ci-tests/tests/verified_collection.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-collection-tests.rlib",
+            ".chrono-harness/state/admission-proofs/verify.ci-collection-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -111,10 +119,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-preparation-tests.rlib,dep-info=.chrono-harness/state/verify.ci-preparation-tests.rlib.d",
+            "--emit=link=.chrono-harness/state/admission-proofs/verify.ci-preparation-tests.rlib,dep-info=.chrono-harness/state/admission-proofs/verify.ci-preparation-tests.rlib.d",
             "crates/judge-ci-tests/tests/verified_consumption.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-preparation-tests.rlib",
+            ".chrono-harness/state/admission-proofs/verify.ci-preparation-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
