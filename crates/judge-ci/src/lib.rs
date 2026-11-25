@@ -26,6 +26,9 @@ pub mod observed;
 #[cfg(not(verus_keep_ghost))]
 mod project_execution;
 #[cfg(not(verus_keep_ghost))]
+#[doc(hidden)]
+pub use project_execution::receive_project_diagnostics;
+#[cfg(not(verus_keep_ghost))]
 pub mod project_pairs;
 #[cfg(not(verus_keep_ghost))]
 mod route_query;

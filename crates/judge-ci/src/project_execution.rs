@@ -93,7 +93,77 @@ struct Reply {
     diagnostic_error: Option<String>,
 }
 
-fn receive(reader: impl Read, errors: &mut Vec<String>) -> Result<Vec<u8>, String> {
+fn maintenance_notice(line: &[u8]) -> bool {
+    let Some(bytes) = line.strip_prefix(b"W_MAINTENANCE_ACTIVATION: ") else {
+        return false;
+    };
+    let Ok(body) = crate::codec::json(bytes) else {
+        return false;
+    };
+    let Some(fields) = body.as_object() else {
+        return false;
+    };
+    if fields.keys().any(|name| {
+        !matches!(
+            name.as_str(),
+            "schema"
+                | "reason"
+                | "accepted"
+                | "round_completion"
+                | "disposal"
+                | "responsibility"
+                | "activation_root"
+                | "policy_sha256"
+                | "socket"
+                | "status"
+                | "error"
+        )
+    }) || body["schema"] != "chrono-maintenance-request/v1"
+        || body["responsibility"] != "existing-owner-state"
+        || body["round_completion"] != "not-established"
+        || body["disposal"] != "not-attempted"
+        || !body["reason"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty() && s.len() <= 64 && !s.chars().any(char::is_control))
+    {
+        return false;
+    }
+    for path in ["activation_root", "socket"] {
+        if let Some(value) = fields.get(path) {
+            if !value.is_null() && !value.as_str().is_some_and(|s| Path::new(s).is_absolute()) {
+                return false;
+            }
+        }
+    }
+    if let Some(digest) = fields.get("policy_sha256") {
+        if !digest.as_str().is_some_and(|s| {
+            s.len() == 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }) {
+            return false;
+        }
+    }
+    match (body["status"].as_str(), body["accepted"].as_bool()) {
+        (Some("requested"), Some(true)) => {
+            ["activation_root", "policy_sha256", "socket"]
+                .iter()
+                .all(|key| fields.contains_key(*key))
+                && !fields.contains_key("error")
+        }
+        (Some("wake-failed"), Some(false)) => body["error"].as_str().is_some_and(|s| !s.is_empty()),
+        _ => false,
+    }
+}
+
+/// Forward producer-owned wake receipts byte for byte. All other stderr
+/// remains under the original strict project-diagnostic contract.
+#[doc(hidden)]
+pub fn receive_project_diagnostics(
+    reader: impl Read,
+    mut notifications: impl Write,
+    errors: &mut Vec<String>,
+) -> Result<Vec<u8>, String> {
     let mut traces =
         TracingEventReceiver::new(Default::default(), Default::default(), Default::default());
     let mut diagnostic = Vec::new();
@@ -112,6 +182,10 @@ fn receive(reader: impl Read, errors: &mut Vec<String>) -> Result<Vec<u8>, Strin
             {
                 errors.push(error);
             }
+        } else if maintenance_notice(&line) {
+            notifications
+                .write_all(&line)
+                .map_err(|error| error.to_string())?;
         } else {
             diagnostic.extend_from_slice(&line);
         }
@@ -164,7 +238,8 @@ pub(super) fn execute(
             stdin.flush().map_err(|e| e.to_string())
         });
         let read = scope.spawn(move || serde_json::from_reader::<_, Reply>(BufReader::new(stdout)));
-        let diagnostic = receive(stderr, errors);
+        let diagnostic =
+            receive_project_diagnostics(stderr, crate::diagnostic_session::Stderr, errors);
         (send.join(), read.join(), diagnostic)
     });
     let status = child.wait().map_err(|e| e.to_string())?;
