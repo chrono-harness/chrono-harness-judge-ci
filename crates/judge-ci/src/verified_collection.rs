@@ -8,29 +8,33 @@ use result_types::{CheckResult, Status};
 verus! {
 
 /// A data frame carries the permitted new stream length; a terminal carries its JSON length.
+pub const STDOUT_TAG: u8 = 79; // ASCII O
+pub const STDERR_TAG: u8 = 69; // ASCII E
+pub const TERMINAL_TAG: u8 = 84; // ASCII T
+
 pub enum ObservedFrame { Stdout(usize), Stderr(usize), Terminal(usize) }
 
 pub fn observed_frame(tag: u8, length: usize, stdout: usize, stderr: usize, limit: usize)
     -> (result: Result<ObservedFrame, &'static str>)
     requires stdout <= limit, stderr <= limit,
     ensures match result {
-        Ok(ObservedFrame::Stdout(end)) => tag == b'O' && end as int == stdout + length && end <= limit,
-        Ok(ObservedFrame::Stderr(end)) => tag == b'E' && end as int == stderr + length && end <= limit,
-        Ok(ObservedFrame::Terminal(size)) => tag == b'T' && size == length && length <= 2097152,
-        Err(e) => if tag == b'O' || tag == b'E' {
+        Ok(ObservedFrame::Stdout(end)) => tag == STDOUT_TAG && end as int == stdout + length && end <= limit,
+        Ok(ObservedFrame::Stderr(end)) => tag == STDERR_TAG && end as int == stderr + length && end <= limit,
+        Ok(ObservedFrame::Terminal(size)) => tag == TERMINAL_TAG && size == length && length <= 2097152,
+        Err(e) => if tag == STDOUT_TAG || tag == STDERR_TAG {
             e@ == "observed output exceeds command bound"@
-                && (if tag == b'O' { stdout } else { stderr }) as int + length > limit
-        } else if tag == b'T' {
+                && (if tag == STDOUT_TAG { stdout } else { stderr }) as int + length > limit
+        } else if tag == TERMINAL_TAG {
             e@ == "oversize observed terminal record"@ && length > 2097152
         } else { e@ == "unknown observed command frame"@ }
     },
 {
     match tag {
-        b'O' if length <= limit - stdout => Ok(ObservedFrame::Stdout(stdout + length)),
-        b'E' if length <= limit - stderr => Ok(ObservedFrame::Stderr(stderr + length)),
-        b'O' | b'E' => Err("observed output exceeds command bound"),
-        b'T' if length <= 2 * 1024 * 1024 => Ok(ObservedFrame::Terminal(length)),
-        b'T' => Err("oversize observed terminal record"),
+        STDOUT_TAG if length <= limit - stdout => Ok(ObservedFrame::Stdout(stdout + length)),
+        STDERR_TAG if length <= limit - stderr => Ok(ObservedFrame::Stderr(stderr + length)),
+        STDOUT_TAG | STDERR_TAG => Err("observed output exceeds command bound"),
+        TERMINAL_TAG if length <= 2 * 1024 * 1024 => Ok(ObservedFrame::Terminal(length)),
+        TERMINAL_TAG => Err("oversize observed terminal record"),
         _ => Err("unknown observed command frame"),
     }
 }

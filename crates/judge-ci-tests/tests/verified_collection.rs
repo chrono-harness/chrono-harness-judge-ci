@@ -15,13 +15,13 @@ verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn observed_frames_separate_the_streams_and_enforce_each_limit() {
     use policy::ObservedFrame::{Stdout,Stderr,Terminal};
-    expect(matches!(policy::observed_frame(b'O', 4, 1, 5, 5), Ok(Stdout(5))));
-    expect(matches!(policy::observed_frame(b'E', 3, 5, 1, 5), Ok(Stderr(4))));
-    expect(matches!(policy::observed_frame(b'O', 0, usize::MAX, 0, usize::MAX), Ok(Stdout(_))));
-    expect(policy::observed_frame(b'O', 1, usize::MAX, 0, usize::MAX).is_err());
-    expect(policy::observed_frame(b'E', 1, 0, 1, 1).is_err());
-    expect(matches!(policy::observed_frame(b'T', 2097152, 0, 0, 0), Ok(Terminal(2097152))));
-    expect(policy::observed_frame(b'T', 2097153, 0, 0, 0).is_err());
+    expect(matches!(policy::observed_frame(79u8, 4, 1, 5, 5), Ok(Stdout(5))));
+    expect(matches!(policy::observed_frame(69u8, 3, 5, 1, 5), Ok(Stderr(4))));
+    expect(matches!(policy::observed_frame(79u8, 0, usize::MAX, 0, usize::MAX), Ok(Stdout(_))));
+    expect(policy::observed_frame(79u8, 1, usize::MAX, 0, usize::MAX).is_err());
+    expect(policy::observed_frame(69u8, 1, 0, 1, 1).is_err());
+    expect(matches!(policy::observed_frame(84u8, 2097152, 0, 0, 0), Ok(Terminal(2097152))));
+    expect(policy::observed_frame(84u8, 2097153, 0, 0, 0).is_err());
     expect(policy::observed_frame(0, 0, 0, 0, 0).is_err());
 }
 
