@@ -1,16 +1,23 @@
 //! Consume the installed project executor. Child operations keep their own command limits.
+#[cfg(not(verus_keep_ghost))]
 use crate::route_query::installed;
+#[cfg(not(verus_keep_ghost))]
 use crate::route_wire::{Execution, Receipt};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::Stdio,
 };
+#[cfg(not(verus_keep_ghost))]
 use tracing_tunnel::{TracingEvent, TracingEventReceiver};
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Serialize)]
 struct RouteCommand {
     executable: PathBuf,
@@ -19,6 +26,7 @@ struct RouteCommand {
     output_limit_bytes: usize,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Serialize)]
 struct Request<'a> {
     plan: &'a Execution,
@@ -26,6 +34,7 @@ struct Request<'a> {
     diagnostics: Option<&'static str>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(super) struct Operation {
     pub operation: String,
@@ -34,6 +43,7 @@ pub(super) struct Operation {
     pub receipt: Option<Receipt>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(super) struct Results {
     plan: String,
@@ -44,6 +54,7 @@ pub(super) struct Results {
     pub tests: BTreeMap<String, String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Results {
     fn validate(&self, plan: &Execution) -> Result<(), String> {
         if self.plan != plan.identity
@@ -54,13 +65,21 @@ impl Results {
                 "E_PLAN_BINDING: projects returned a different plan or test selection".into(),
             );
         }
-        let mut missing: BTreeSet<_> = plan
+        let mut missing: BTreeMap<_, _> = plan
             .operations
             .iter()
-            .map(|op| op.method.operation.as_str())
+            .map(|op| {
+                (
+                    op.method.operation.as_str(),
+                    op.method.output_contract.is_some(),
+                )
+            })
             .collect();
+        let mut proof_receipt = None;
+        let mut ordinary_receipt = None;
         for row in self.executed.iter().chain(&self.blocked) {
-            if !missing.remove(row.operation.as_str())
+            let required = missing.remove(row.operation.as_str());
+            if required.is_none()
                 || row
                     .receipt
                     .as_ref()
@@ -71,28 +90,49 @@ impl Results {
                     row.operation
                 ));
             }
-            if row.status == "passed" && row.receipt.is_none() {
-                return Err(format!(
-                    "E_RECEIPT_MISMATCH: no receipt for {}",
-                    row.operation
-                ));
+            if needs_receipt(&row.status, row.receipt.is_some()) {
+                let gap = if required == Some(true) {
+                    &mut proof_receipt
+                } else {
+                    &mut ordinary_receipt
+                };
+                gap.get_or_insert(row.operation.as_str());
             }
         }
-        if !missing.is_empty() {
-            return Err(format!(
-                "E_PLAN_BINDING: missing project operations {missing:?}"
-            ));
+        let gap = reply_gap(
+            proof_receipt,
+            ordinary_receipt,
+            !missing.is_empty(),
+            missing.values().any(|required| *required),
+        );
+        match gap {
+            Some(ReplyGap::Receipt(name, proof)) => {
+                return Err(crate::verified_collection::coverage_cause(
+                    format!("E_RECEIPT_MISMATCH: no receipt for {name}"),
+                    proof,
+                ));
+            }
+            Some(ReplyGap::Operations(proof)) => {
+                let names: BTreeSet<_> = missing.keys().copied().collect();
+                return Err(crate::verified_collection::coverage_cause(
+                    format!("E_PLAN_BINDING: missing project operations {names:?}"),
+                    proof,
+                ));
+            }
+            None => {}
         }
         Ok(())
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 struct Reply {
     results: Results,
     diagnostic_error: Option<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn maintenance_notice(line: &[u8]) -> bool {
     let Some(bytes) = line.strip_prefix(b"W_MAINTENANCE_ACTIVATION: ") else {
         return false;
@@ -158,6 +198,7 @@ fn maintenance_notice(line: &[u8]) -> bool {
 
 /// Forward producer-owned wake receipts byte for byte. All other stderr
 /// remains under the original strict project-diagnostic contract.
+#[cfg(not(verus_keep_ghost))]
 #[doc(hidden)]
 pub fn receive_project_diagnostics(
     reader: impl Read,
@@ -194,6 +235,7 @@ pub fn receive_project_diagnostics(
     Ok(diagnostic)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn execute(
     root: &Path,
     plan: &Execution,
@@ -269,4 +311,44 @@ pub(super) fn execute(
         ));
     }
     Ok(reply.results)
+}
+
+use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
+
+verus! {
+
+pub enum ReplyGap<'a> {
+    Receipt(&'a str, bool),
+    Operations(bool),
+}
+
+pub fn needs_receipt(status: &str, has_receipt: bool) -> (missing: bool)
+    ensures missing == (status@ == "passed"@ && !has_receipt),
+{
+    <&str>::exec_eq(status, "passed") && !has_receipt
+}
+
+/// Select the original diagnosis after the plan and every returned identity match.
+/// A missing proof stays visible when an ordinary operation also lacks its result.
+pub fn reply_gap<'a>(
+    proof_receipt: Option<&'a str>, ordinary_receipt: Option<&'a str>,
+    missing_operations: bool, missing_proof: bool,
+) -> (gap: Option<ReplyGap<'a>>)
+    ensures match gap {
+        Some(ReplyGap::Receipt(name, true)) => proof_receipt == Some(name),
+        Some(ReplyGap::Operations(true)) => proof_receipt.is_none() && missing_proof,
+        Some(ReplyGap::Receipt(name, false)) => proof_receipt.is_none() && !missing_proof
+            && ordinary_receipt == Some(name),
+        Some(ReplyGap::Operations(false)) => proof_receipt.is_none() && !missing_proof
+            && ordinary_receipt.is_none() && missing_operations,
+        None => proof_receipt.is_none() && ordinary_receipt.is_none()
+            && !missing_operations && !missing_proof,
+    },
+{
+    if let Some(name) = proof_receipt { return Some(ReplyGap::Receipt(name, true)); }
+    if missing_proof { return Some(ReplyGap::Operations(true)); }
+    if let Some(name) = ordinary_receipt { return Some(ReplyGap::Receipt(name, false)); }
+    if missing_operations { Some(ReplyGap::Operations(false)) } else { None }
+}
+
 }

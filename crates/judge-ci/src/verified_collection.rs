@@ -5,6 +5,14 @@ use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
 pub mod result_types;
 use result_types::{CheckResult, Status};
 
+#[cfg(verus_keep_ghost)]
+#[path = "project_execution.rs"]
+pub mod reply_validation;
+#[cfg(not(verus_keep_ghost))]
+pub mod reply_validation {
+    pub use crate::project_execution::{ReplyGap, needs_receipt, reply_gap};
+}
+
 verus! {
 
 /// A data frame carries the permitted new stream length; a terminal carries its JSON length.
@@ -263,6 +271,12 @@ pub fn operation_result_with_sources<T>(
     }
 }
 
+pub fn coverage_cause(cause: String, required: bool) -> (result: String)
+    ensures result@ == if required { "E_VERUS_COVERAGE: "@ + cause@ } else { cause@ },
+{
+    if required { "E_VERUS_COVERAGE: ".to_string().concat(cause.as_str()) } else { cause }
+}
+
 /// A required compiler operation that failed or was blocked cannot establish source coverage.
 pub fn coverage_result(mut row: CheckResult, required_proof: bool) -> (result: CheckResult)
     ensures result.id@ == row.id@, result.status == row.status, result.exit_code == row.exit_code,
@@ -270,9 +284,7 @@ pub fn coverage_result(mut row: CheckResult, required_proof: bool) -> (result: C
             "E_VERUS_COVERAGE: "@ + row.cause@
         } else { row.cause@ },
 {
-    if required_proof && matches!(row.status, Status::Failed | Status::Blocked) {
-        row.cause = "E_VERUS_COVERAGE: ".to_string().concat(row.cause.as_str());
-    }
+    row.cause = coverage_cause(row.cause, required_proof && matches!(row.status, Status::Failed | Status::Blocked));
     row
 }
 

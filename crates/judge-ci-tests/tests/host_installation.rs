@@ -14,6 +14,18 @@ pub fn setup_sequence(commands: &[String], instructions: bool) -> (accepted: boo
         || commands[1] == "mise exec -- chrono-instructions sync-rules --host-root .".to_string())
 }
 
+/// The deployed native check binds both proof artifacts to the executed reply decision.
+pub fn native_check_script() -> &'static str {
+    include_str!("../../../check.sh")
+}
+
+pub fn reply_source_argument(independent: bool) -> (arg: &'static str)
+    ensures arg@ == if independent { "\"$include/project_execution.rs\""@ }
+        else { "\"$src/project_execution.rs\""@ },
+{
+    if independent { "\"$include/project_execution.rs\"" } else { "\"$src/project_execution.rs\"" }
+}
+
 pub fn mise_manifest() -> (s: &'static str) {
     include_str!("../../../.config/mise/conf.d/chrono-harness.toml")
 }
@@ -100,6 +112,33 @@ mod native {
             format!("{file}{has}{inner}{end}{fallback}")
         } else {
             when_selected("SELECTED", &inner, &fallback)
+        }
+    }
+
+    #[test]
+    fn both_compiler_checks_bind_the_executed_reply_policy() {
+        let script = native_check_script().replace(concat!("\\", "\n"), " ");
+        for (independent, operation) in [
+            (false, "$collection_operation"),
+            (true, "$collection_tests_operation"),
+        ] {
+            let artifact = format!(r#"".chrono-harness/state/admission-proofs/{operation}.rlib""#);
+            let mut calls = script.lines().filter_map(|line| {
+                let mut words = line.split_ascii_whitespace();
+                (words.next() == Some("chrono-host-bootstrap")
+                    && words.next() == Some("check-compiler-sources")
+                    && words.next() == Some("proof")
+                    && words.next() == Some(artifact.as_str()))
+                .then_some(words)
+            });
+            let arguments = calls.next().expect("missing compiler artifact check");
+            assert_eq!(
+                arguments
+                    .filter(|arg| *arg == reply_source_argument(independent))
+                    .count(),
+                1
+            );
+            assert!(calls.next().is_none(), "duplicate artifact check");
         }
     }
 

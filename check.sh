@@ -36,7 +36,7 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_collection.rs src/result_types.rs src/collect.rs src/originals.rs src/verified_consumption.rs \
+chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_collection.rs src/result_types.rs src/project_execution.rs src/collect.rs src/originals.rs src/verified_consumption.rs \
   src/consumption.rs src/lib.rs src/requirements.rs src/observed.rs ||
   coverage_failure "native library differs from required sources"
 
@@ -49,9 +49,9 @@ preparation_operation=verify.ci-preparation
 preparation_tests_operation=verify.ci-preparation-tests
 
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_operation.rlib" "$src/verified_collection.rs" \
-  "$src/result_types.rs"
+  "$src/result_types.rs" "$src/project_execution.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_tests_operation.rlib" "$tests/verified_collection.rs" \
-  "$include/verified_collection.rs" "$include/result_types.rs" "$tests/support/expect.rs"
+  "$include/verified_collection.rs" "$include/result_types.rs" "$include/project_execution.rs" "$tests/support/expect.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_operation.rlib" "$src/verified_consumption.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_tests_operation.rlib" "$tests/verified_consumption.rs" \
   "$include/verified_consumption.rs"
