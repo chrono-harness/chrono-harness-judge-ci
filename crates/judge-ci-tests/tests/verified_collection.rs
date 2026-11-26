@@ -13,6 +13,33 @@ use vstd::prelude::*;
 
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn required_results_take_precedence_only_in_a_bound_execution_reply() {
+    use policy::reply_validation::{needs_receipt, reply_gap, ReplyGap};
+    proof { reveal_strlit("blocked"); reveal_strlit("passed");
+        assert("blocked"@.len() != "passed"@.len()); }
+    expect(needs_receipt("passed", false));
+    expect(!needs_receipt("passed", true));
+    expect(!needs_receipt("blocked", false));
+    for_proof_receipt("verify");
+    expect(matches!(reply_gap(None, Some("build"), true, true), Some(ReplyGap::Operations(true))));
+    expect(matches!(reply_gap(None, Some("build"), true, false), Some(ReplyGap::Receipt(_, false))));
+    expect(matches!(reply_gap(None, None, true, false), Some(ReplyGap::Operations(false))));
+    expect(matches!(reply_gap(None, None, false, false), None));
+}
+
+fn for_proof_receipt(operation: &str) {
+    use policy::reply_validation::{reply_gap, ReplyGap};
+    let gap = reply_gap(Some(operation), Some("build"), true, true);
+    match gap {
+        Some(ReplyGap::Receipt(name, proof_required)) => {
+            expect(proof_required);
+            expect(<&str as vstd::contrib::exec_spec::ExecSpecEq>::exec_eq(name, operation));
+        },
+        _ => { expect(false); },
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn observed_failure_preserves_the_first_unavailable_result() {
     use policy::{ObservedFailure, finish_observation};
     let wait = finish_observation::<u8, u8, u8>(Err(13), Err(21), Err(32), Err(45));
