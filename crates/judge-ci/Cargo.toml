@@ -15,6 +15,7 @@ test = false
 bench = false
 
 [dependencies]
+hex = "0.4"
 vstd = "=0.0.0-2026-04-20-1748"
 tracing-tunnel = { version = "0.1.0", default-features = false, features = ["receiver", "sender", "std"] }
 tracing = { version = "0.1", default-features = false, features = ["std"] }

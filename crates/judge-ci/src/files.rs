@@ -7,7 +7,7 @@ use std::{
 };
 
 pub fn sha256(data: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(data))
+    hex::encode(Sha256::digest(data))
 }
 fn copy_hashed(mut input: impl Read, mut output: impl Write) -> Result<(String, u64), String> {
     let mut buffer = [0; 65536];
@@ -22,7 +22,7 @@ fn copy_hashed(mut input: impl Read, mut output: impl Write) -> Result<(String, 
         hash.update(&buffer[..n]);
         total = total.checked_add(n as u64).ok_or("stream size overflow")?;
     }
-    Ok((format!("{:x}", hash.finalize()), total))
+    Ok((hex::encode(hash.finalize()), total))
 }
 pub fn file_identity(path: &Path) -> Result<(String, u64), String> {
     if !fs::metadata(path)
