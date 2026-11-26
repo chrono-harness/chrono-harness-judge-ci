@@ -66,6 +66,27 @@
       ]
     },
     {
+      "path": ".chrono-harness/ci/roadmap.rs",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/roadmap.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
+      }
+    },
+    {
       "path": ".chrono-harness/ci/units.json",
       "owner": "host",
       "surface": "product",
@@ -348,7 +369,37 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/roadmap.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
+      }
+    },
+    {
+      "path": ".github/workflows/actions.lock",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/workflows/check.yml",
@@ -360,7 +411,11 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/workflows/dependabot-auto-merge.yml",
@@ -378,7 +433,21 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/roadmap.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/release.yml",
@@ -1176,6 +1245,7 @@
         "verify.ci-preparation",
         "verify.ci-preparation-tests",
         "verify.host-installation",
+        "verify.roadmap-adapters",
         "judge-ci.owner-check"
       ],
       "timeout_seconds": 600,
