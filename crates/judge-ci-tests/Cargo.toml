@@ -54,4 +54,10 @@ name = "host_installation"
 path = "tests/host_installation.rs"
 
 [dev-dependencies]
+sha2 = "0.11"
+serde_yaml = { package = "serde_yaml_ng", version = "=0.10.0" }
 toml = { version = "1.2", default-features = false, features = ["parse", "serde", "std"] }
+
+[[test]]
+name = "roadmap_adapters"
+path = "../../.chrono-harness/ci/roadmap.rs"
