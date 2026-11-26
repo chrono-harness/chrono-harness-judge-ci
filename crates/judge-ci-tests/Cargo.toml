@@ -6,7 +6,7 @@ publish = false
 autotests = false
 
 [dependencies]
-vstd = "=0.0.0-2026-04-20-1748"
+vstd = "=0.0.0-2026-11-22-0344"
 serde_json = "1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-tunnel = { version = "0.1.0", default-features = false, features = ["receiver","sender"] }
@@ -54,4 +54,4 @@ name = "host_installation"
 path = "tests/host_installation.rs"
 
 [dev-dependencies]
-toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"] }
+toml = { version = "1.2", default-features = false, features = ["parse", "serde", "std"] }
