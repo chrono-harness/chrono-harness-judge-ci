@@ -51,14 +51,12 @@ jobs:
           set -euo pipefail
           cargo build --release --locked --manifest-path crates/judge-ci/Cargo.toml
           binary="$CARGO_TARGET_DIR/release/chrono-judge-ci"
-          code=0
-          "$binary" requirements-v1 <<< '{"operation":"schedule","profile":"../escape","candidate":"abc","initial":true}' 2>"$RUNNER_TEMP/query-error" || code=$?
-          test "$code" = 2
-          grep -F 'E_REQUIREMENTS: invalid relative path' "$RUNNER_TEMP/query-error"
+          query_code=0
+          "$binary" requirements-v1 <<< '{"operation":"schedule","profile":"../escape","candidate":"abc","initial":true}' 2>"$RUNNER_TEMP/query-error" || query_code=$?
           code=0
           "$binary" <<< '{}' 2>"$RUNNER_TEMP/judge-error" || code=$?
-          test "$code" = 2
-          grep -F 'E_REQUEST:' "$RUNNER_TEMP/judge-error"
+          cargo run --quiet --locked --release --manifest-path crates/judge-ci-tests/Cargo.toml \
+            --example release_observation -- "$query_code" "$RUNNER_TEMP/query-error" "$code" "$RUNNER_TEMP/judge-error"
           mkdir "$RUNNER_TEMP/dist"
           cp "$CARGO_TARGET_DIR/release/chrono-judge-ci" "$RUNNER_TEMP/dist/chrono-judge-ci-$PLATFORM"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

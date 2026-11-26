@@ -4,7 +4,25 @@
 mod policy;
 use vstd::prelude::*;
 
+#[path = "../examples/release_observation.rs"]
+mod release_observation;
+
 verus! {
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn release_accepts_the_expected_observations_only() {
+    let accepted = release_observation::accepts(2, true, 2, true);
+    assert(accepted);
+    let refused_1 = release_observation::accepts(0, true, 2, true);
+    assert(!refused_1);
+    let refused_2 = release_observation::accepts(2, false, 2, true);
+    assert(!refused_2);
+    let refused_3 = release_observation::accepts(2, true, 0, true);
+    assert(!refused_3);
+    let refused_4 = release_observation::accepts(2, true, 2, false);
+    assert(!refused_4);
+}
+
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn preparation_requires_exact_command_and_prerequisite() {

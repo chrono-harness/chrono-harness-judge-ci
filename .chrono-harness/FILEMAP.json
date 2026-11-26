@@ -332,7 +332,16 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".gitignore",
@@ -545,6 +554,27 @@
           {
             "path": "crates/judge-ci-tests/tests/verified_collection.rs",
             "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/judge-ci-tests/examples/release_observation.rs",
+      "owner": "judge-ci-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci-tests/tests/verified_consumption.rs",
+            "operation": "verify.ci-preparation-tests"
           }
         ]
       }
