@@ -12,6 +12,56 @@ use expectation::expect;
 use vstd::prelude::*;
 
 verus! {
+/// Independently answer one query by reading the submitted methods from the end.
+fn compare_compiler_output<C>(methods: &[policy::output_contracts::BindingMethod<C>], query: &str) {
+    use policy::output_contracts::compiler_outputs;
+    let prepared = compiler_outputs::<C,u8>(Ok(()), methods);
+    let names = match prepared { Ok(names) => names, Err(_) => { expect(false); return; } };
+    let required = names.contains(query);
+    let mut end = methods.len();
+    while end > 0
+        invariant end <= methods.len(),
+            required == (exists|j: int| 0 <= j < methods.len()
+                && methods@[j].operation@ == query@ && methods@[j].output_contract.is_some()),
+            forall|j: int| end <= j < methods.len()
+                ==> methods@[j].operation@ != query@ || methods@[j].output_contract.is_none(),
+        decreases end,
+    {
+        end -= 1;
+        let row = &methods[end];
+        if <&str as vstd::contrib::exec_spec::ExecSpecEq>::exec_eq(row.operation, query) {
+            if let Some(_) = &row.output_contract {
+                assert(methods@[end as int].operation@ == query@);
+                expect(required);
+                return;
+            }
+        }
+    }
+    expect(!required);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn compiler_queries_read_any_matching_contract_after_successful_preparation() {
+    use policy::output_contracts::{BindingMethod, compiler_outputs};
+    let empty: [BindingMethod<(u8, u8)>; 0] = [];
+    compare_compiler_output(&empty, "unknown");
+    let contracts = [(1u8, 2u8), (2u8, 3u8)];
+    let argv: [String; 0] = [];
+    let rows = [
+        BindingMethod { operation: "ordinary", argv: &argv, output_contract: None, output_limit_bytes: 32 },
+        BindingMethod { operation: "proof", argv: &argv, output_contract: None, output_limit_bytes: 32 },
+        BindingMethod { operation: "proof", argv: &argv, output_contract: Some(&contracts[0]), output_limit_bytes: 64 },
+        BindingMethod { operation: "proof", argv: &argv, output_contract: None, output_limit_bytes: 32 },
+        BindingMethod { operation: "编译", argv: &argv, output_contract: Some(&contracts[1]), output_limit_bytes: 64 },
+    ];
+    let failed = compiler_outputs(Err(43u8), &rows);
+    expect(matches!(failed, Err(43)));
+    compare_compiler_output(&rows, "proof");
+    compare_compiler_output(&rows, "ordinary");
+    compare_compiler_output(&rows, "编译");
+    compare_compiler_output(&rows, "unknown");
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn required_results_take_precedence_only_in_a_bound_execution_reply() {
     use policy::reply_validation::{needs_receipt, reply_gap, ReplyGap};
