@@ -10,46 +10,166 @@ mod installed_selection {
     use vstd::prelude::*;
 
     verus! {
+        /// A mise setup installs tools first and refreshes the rules only when selected.
+    pub fn setup_sequence(commands: &[String], instructions: bool) -> (accepted: bool)
+        ensures accepted == (commands.len() == (if instructions { 2usize } else { 1usize })
+            && commands@[0]@ == "sh .chrono-harness/install-tools.sh"@
+            && (!instructions || commands@[1]@ == "mise exec -- chrono-instructions sync-rules --host-root ."@)),
+    {
+        if commands.len() != (if instructions { 2usize } else { 1usize }) { return false; }
+        commands[0] == "sh .chrono-harness/install-tools.sh".to_string() && (!instructions
+            || commands[1] == "mise exec -- chrono-instructions sync-rules --host-root .".to_string())
+    }
+
+    pub fn mise_manifest() -> (s: &'static str) {
+        include_str!("../../../.config/mise/conf.d/chrono-harness.toml")
+    }
+
+    pub fn tool_installer() -> (s: &'static str) { include_str!("../../../.chrono-harness/install-tools.sh") }
+
     /// The template renders these same rows into both mise platform tables.
-    pub fn installed_asset(linux: bool) -> (fields: (&'static str, usize))
-        ensures linux ==> fields.0@ == "linux-x86_64"@ && fields.1 == 1,
-            !linux ==> fields.0@ == "macos-aarch64"@ && fields.1 == 2,
-    {
-        if linux {
-            ("linux-x86_64", 1)
-        } else {
-            ("macos-aarch64", 2)
+        pub fn installed_asset(linux: bool) -> (fields: (&'static str, usize))
+            ensures linux ==> fields.0@ == "linux-x86_64"@ && fields.1 == 1,
+                !linux ==> fields.0@ == "macos-aarch64"@ && fields.1 == 2,
+        {
+            if linux {
+                ("linux-x86_64", 1)
+            } else {
+                ("macos-aarch64", 2)
+            }
         }
-    }
 
-    /// mise reports file/key presence and applies the selected Rust-regex expression.
-    #[derive(Clone, Copy)]
-    pub enum InstalledValue { Pin, Use, Reject }
+        /// mise reports file/key presence and applies the selected Rust-regex expression.
+        #[derive(Clone, Copy)]
+        pub enum InstalledValue { Pin, Use, Reject }
 
-    pub fn installed_value(present: bool, matches: bool) -> (action: InstalledValue)
-        ensures !present ==> action == InstalledValue::Pin,
-            present && matches ==> action == InstalledValue::Use,
-            present && !matches ==> action == InstalledValue::Reject,
-    {
-        if !present { InstalledValue::Pin } else if matches { InstalledValue::Use }
-        else { InstalledValue::Reject }
-    }
-
-    pub fn installed_pattern(is_version: bool) -> (pattern: &'static str)
-        ensures is_version ==> pattern@ == "^[0-9]+[.][0-9]+[.][0-9]+(-[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*)?$"@,
-            !is_version ==> pattern@ == "^sha256:[a-f0-9]{64}$"@,
-    {
-        if is_version { "^[0-9]+[.][0-9]+[.][0-9]+(-[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*)?$" } else { "^sha256:[a-f0-9]{64}$" }
-    }
-
-    pub fn installed_config() -> (s: &'static str) {
-        include_str!("../../../.config/mise/conf.d/selected-chrono-harness.toml")
-    }
+        pub fn installed_value(present: bool, matches: bool) -> (action: InstalledValue)
+            ensures !present ==> action == InstalledValue::Pin,
+                present && matches ==> action == InstalledValue::Use,
+                present && !matches ==> action == InstalledValue::Reject,
+        {
+            if !present { InstalledValue::Pin } else if matches { InstalledValue::Use }
+            else { InstalledValue::Reject }
         }
+
+        pub fn installed_pattern(is_version: bool) -> (pattern: &'static str)
+            ensures is_version ==> pattern@ == "^[0-9]+[.][0-9]+[.][0-9]+(-[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*)?$"@,
+                !is_version ==> pattern@ == "^sha256:[a-f0-9]{64}$"@,
+        {
+            if is_version { "^[0-9]+[.][0-9]+[.][0-9]+(-[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*)?$" } else { "^sha256:[a-f0-9]{64}$" }
+        }
+
+        pub fn installed_config() -> (s: &'static str) {
+            include_str!("../../../.config/mise/conf.d/selected-chrono-harness.toml")
+        }
+            }
 
     #[cfg(all(test, not(verus_keep_ghost)))]
     mod native {
         use super::*;
+
+        fn setup_matches(source: &str, instructions: bool) -> bool {
+            let Ok(doc) = source.parse::<toml::Table>() else {
+                return false;
+            };
+            let instruction_tool = doc
+                .get("tools")
+                .and_then(toml::Value::as_table)
+                .is_some_and(|tools| tools.contains_key("http:chrono-instructions"));
+            let Some(setup) = doc
+                .get("tasks")
+                .and_then(|tasks| tasks.get("harness-setup"))
+                .and_then(toml::Value::as_table)
+            else {
+                return false;
+            };
+            if instruction_tool != instructions
+                || setup.keys().any(|key| key != "run" && key != "description")
+            {
+                return false;
+            }
+            let commands: Vec<String> = match setup.get("run") {
+                Some(toml::Value::String(one)) => vec![one.clone()],
+                Some(toml::Value::Array(steps)) => {
+                    let Some(all) = steps
+                        .iter()
+                        .map(|value| value.as_str().map(str::to_owned))
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        return false;
+                    };
+                    all
+                }
+                _ => return false,
+            };
+            setup_sequence(&commands, instructions)
+        }
+
+        #[test]
+        fn every_installed_organization_tool_can_follow_the_selected_channel() {
+            use std::collections::BTreeSet;
+
+            let manifest = mise_manifest().parse::<toml::Table>().unwrap();
+            let expected: BTreeSet<_> = manifest["tools"]
+                .as_table()
+                .unwrap()
+                .keys()
+                .filter_map(|name| name.strip_prefix("http:chrono-"))
+                .collect();
+            let (_, rows) = tool_installer().split_once("done <<'TOOLS'\n").unwrap();
+            let (rows, _) = rows.split_once("\nTOOLS\n").unwrap();
+            let mut selected = BTreeSet::new();
+            for row in rows.lines() {
+                let (command, _) = row.split_once(' ').unwrap();
+                assert!(
+                    selected.insert(command.strip_prefix("chrono-").unwrap()),
+                    "{command}"
+                );
+            }
+            assert_eq!(selected, expected);
+
+            let projection = installed_config().parse::<toml::Table>().unwrap();
+            let projected: BTreeSet<_> = projection["tools"]
+                .as_table()
+                .unwrap()
+                .iter()
+                .map(|(key, tool)| {
+                    let command = tool["bin"].as_str().unwrap();
+                    assert_eq!(key.strip_prefix("http:"), Some(command));
+                    command.strip_prefix("chrono-").unwrap()
+                })
+                .collect();
+            assert_eq!(projected, expected);
+        }
+
+        #[test]
+        fn mise_installs_the_selected_tools_before_refreshing_instructions() {
+            let original = mise_manifest();
+            let selected = true;
+            assert!(setup_matches(original, selected));
+            assert!(!setup_matches(
+                &original.replace(
+                    "sh .chrono-harness/install-tools.sh",
+                    "sh .chrono-harness/install-tools.sh --dry-run"
+                ),
+                selected
+            ));
+            assert!(!setup_matches(
+                &original.replace(
+                    "[tasks.harness-setup]",
+                    "[tasks.harness-setup]\ndepends = ['other']"
+                ),
+                selected
+            ));
+            let install_only =
+                "[tools]\n[tasks.harness-setup]\nrun = 'sh .chrono-harness/install-tools.sh'";
+            assert!(setup_matches(install_only, false));
+            assert!(!setup_matches(install_only, true));
+            let reverse = "[tools.'http:chrono-instructions']\n[tasks.harness-setup]\nrun=['mise exec -- chrono-instructions sync-rules --host-root .','sh .chrono-harness/install-tools.sh']";
+            assert!(!setup_matches(reverse, true));
+            let extra = "[tools]\n[tasks.harness-setup]\nrun = ['sh .chrono-harness/install-tools.sh', 'another-command']";
+            assert!(!setup_matches(extra, false));
+        }
 
         fn when_selected(condition: &str, installed: &str, pinned: &str) -> String {
             format!("{{% if {condition} %}}{installed}{{% else %}}{pinned}{{% endif %}}")
