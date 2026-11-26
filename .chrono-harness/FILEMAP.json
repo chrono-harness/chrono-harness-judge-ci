@@ -425,7 +425,16 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci-tests/tests/host_installation.rs",
+            "operation": "verify.host-installation"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci-tests/Cargo.lock",
