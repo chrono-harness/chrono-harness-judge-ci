@@ -44,3 +44,7 @@ path = "tests/verified_consumption.rs"
 [[test]]
 name = "trace_source"
 path = "tests/trace_source.rs"
+
+[[example]]
+name = "release_observation"
+path = "tests/verified_consumption.rs"
