@@ -234,6 +234,20 @@ fn a_missing_proof_original_keeps_its_specific_reason_and_operation_status() {
     };
     let qualified = policy::coverage_result(failure, true);
     assert(qualified.cause@ == "E_VERUS_COVERAGE: "@ + "E_VERUS_ARTIFACT: missing original"@);
+    let blocked = CheckResult {
+        id: "verify.recovery".to_string(), status: Status::Blocked,
+        cause: "failed prerequisite".to_string(), exit_code: None,
+    };
+    let qualified = policy::coverage_result(blocked, true);
+    assert(qualified.status == Status::Blocked && qualified.exit_code.is_none());
+    assert(qualified.cause@ == "E_VERUS_COVERAGE: "@ + "failed prerequisite"@);
+    let ordinary = CheckResult {
+        id: "business.test".to_string(), status: Status::Blocked,
+        cause: "failed prerequisite".to_string(), exit_code: None,
+    };
+    let qualified = policy::coverage_result(ordinary, false);
+    assert(qualified.status == Status::Blocked && qualified.exit_code.is_none());
+    assert(qualified.cause@ == "failed prerequisite"@);
     let passed = policy::operation_result("verify.recovery", "passed", &None, Some(0));
     let qualified = policy::coverage_result(passed, true);
     assert(qualified.status == Status::Passed && qualified.exit_code == Some(0i32));
