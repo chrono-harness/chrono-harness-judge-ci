@@ -48,3 +48,10 @@ path = "tests/trace_source.rs"
 [[example]]
 name = "release_observation"
 path = "tests/verified_consumption.rs"
+
+[[test]]
+name = "host_installation"
+path = "tests/host_installation.rs"
+
+[dev-dependencies]
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"] }
