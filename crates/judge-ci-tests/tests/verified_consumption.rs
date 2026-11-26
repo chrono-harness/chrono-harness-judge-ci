@@ -4,6 +4,172 @@
 mod policy;
 use vstd::prelude::*;
 
+// Installer policy rendered for this host from Copier v0.1.42.
+#[cfg(any(test, verus_keep_ghost))]
+mod installed_selection {
+    use vstd::prelude::*;
+
+    verus! {
+    /// The template renders these same rows into both mise platform tables.
+    pub fn installed_asset(linux: bool) -> (fields: (&'static str, usize))
+        ensures linux ==> fields.0@ == "linux-x86_64"@ && fields.1 == 1,
+            !linux ==> fields.0@ == "macos-aarch64"@ && fields.1 == 2,
+    {
+        if linux {
+            ("linux-x86_64", 1)
+        } else {
+            ("macos-aarch64", 2)
+        }
+    }
+
+    /// mise reports file/key presence and applies the selected Rust-regex expression.
+    #[derive(Clone, Copy)]
+    pub enum InstalledValue { Pin, Use, Reject }
+
+    pub fn installed_value(present: bool, matches: bool) -> (action: InstalledValue)
+        ensures !present ==> action == InstalledValue::Pin,
+            present && matches ==> action == InstalledValue::Use,
+            present && !matches ==> action == InstalledValue::Reject,
+    {
+        if !present { InstalledValue::Pin } else if matches { InstalledValue::Use }
+        else { InstalledValue::Reject }
+    }
+
+    pub fn installed_pattern(is_version: bool) -> (pattern: &'static str)
+        ensures is_version ==> pattern@ == "^[0-9]+[.][0-9]+[.][0-9]+(-[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*)?$"@,
+            !is_version ==> pattern@ == "^sha256:[a-f0-9]{64}$"@,
+    {
+        if is_version { "^[0-9]+[.][0-9]+[.][0-9]+(-[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*)?$" } else { "^sha256:[a-f0-9]{64}$" }
+    }
+
+    pub fn installed_config() -> (s: &'static str) {
+        include_str!("../../../.config/mise/conf.d/selected-chrono-harness.toml")
+    }
+        }
+
+    #[cfg(all(test, not(verus_keep_ghost)))]
+    mod native {
+        use super::*;
+
+        fn when_selected(condition: &str, installed: &str, pinned: &str) -> String {
+            format!("{{% if {condition} %}}{installed}{{% else %}}{pinned}{{% endif %}}")
+        }
+
+        // Reconstruct the actions of the host's actual mise expressions for every
+        // outcome of its built-in file, TOML lookup and regex operations.
+        fn installed_field_expression(is_version: bool, command: &str, index: usize) -> String {
+            let (value, lookup, field) = if is_version {
+                ("version", format!(r#"data["{command}"][0]"#), "version")
+            } else {
+                (
+                    "hash",
+                    format!(r#"read_toml(path=vars.chrono_selection)["{command}"][{index}]"#),
+                    "checksum",
+                )
+            };
+            let action = |present, matches| match installed_value(present, matches) {
+                InstalledValue::Pin if is_version => String::new(),
+                InstalledValue::Pin => r#"{{ PLATFORM["checksum"] }}"#.to_owned(),
+                InstalledValue::Use => format!("{{{{ {value} }}}}"),
+                InstalledValue::Reject => {
+                    format!(r#"{{{{ throw(message="Invalid installed release {field}") }}}}"#)
+                }
+            };
+            let assign = format!("{{% set {value} = {lookup} %}}");
+            let pattern = installed_pattern(is_version);
+            let check = format!(r#"{{% if {value} is matching(pat="{pattern}") %}}"#);
+            let yes = action(true, true);
+            let no = action(true, false);
+            let fallback = action(false, false);
+            let end = "{% endif %}";
+            let otherwise = "{% else %}";
+            let inner = format!("{assign}{check}{yes}{otherwise}{no}{end}");
+            if is_version {
+                let file = "{% if vars.chrono_selection is exists %}{% set data = read_toml(path=vars.chrono_selection) %}{% endif %}";
+                let has = format!(r#"{{% if data is defined and "{command}" in data %}}"#);
+                format!("{file}{has}{inner}{end}{fallback}")
+            } else {
+                when_selected("SELECTED", &inner, &fallback)
+            }
+        }
+
+        #[test]
+        fn installed_assets_use_the_verified_platforms() {
+            let document: toml::Value = toml::from_str(installed_config()).unwrap();
+            assert_eq!(
+                document["vars"]["chrono_selection"].as_str(),
+                Some("{{ config_root }}/.chrono-harness/state/tool-selection/versions.toml")
+            );
+            assert_eq!(
+                document["vars"]["chrono_pins"].as_str(),
+                Some("{{ config_root }}/.config/mise/conf.d/chrono-harness.toml")
+            );
+            let entries = document["tools"].as_table().unwrap();
+            assert_eq!(entries.len(), 21);
+            for (key, tool) in entries {
+                let command = key.strip_prefix("http:").unwrap();
+                let repository = match command {
+                    "chrono-cache" => "chrono-harness/chrono-harness-cache",
+                    "chrono-ci" => "chrono-harness/chrono-harness-ci",
+                    "chrono-diagnostics" => "chrono-harness/chrono-harness-diagnostics",
+                    "chrono-distribution" => "chrono-harness/chrono-harness-distribution",
+                    "chrono-harness" => "chrono-harness/chrono-harness-runner",
+                    "chrono-host-bootstrap" => "chrono-harness/chrono-harness-host-bootstrap",
+                    "chrono-host-release" => "chrono-harness/chrono-harness-host-release",
+                    "chrono-inputs" => "chrono-harness/chrono-harness-inputs",
+                    "chrono-instructions" => "chrono-harness/chrono-harness-instructions",
+                    "chrono-judge-ci" => "chrono-harness/chrono-harness-judge-ci",
+                    "chrono-judge-cost" => "chrono-harness/chrono-harness-judge-cost",
+                    "chrono-judge-filemap" => "chrono-harness/chrono-harness-judge-filemap",
+                    "chrono-judge-mixed" => "chrono-harness/chrono-harness-judge-mixed",
+                    "chrono-judge-projects" => "chrono-harness/chrono-harness-judge-projects",
+                    "chrono-judge-registration" => {
+                        "chrono-harness/chrono-harness-judge-registration"
+                    }
+                    "chrono-judge-routes" => "chrono-harness/chrono-harness-judge-routes",
+                    "chrono-judge-workflow" => "chrono-harness/chrono-harness-judge-workflow",
+                    "chrono-pr" => "chrono-harness/chrono-harness-pr",
+                    "chrono-test-git" => "chrono-harness/chrono-harness-test-git",
+                    "chrono-test-git-profile" => "chrono-harness/chrono-harness-test-git",
+                    "chrono-worktree" => "chrono-harness/chrono-harness-worktree",
+                    _ => panic!("unexpected selected tool {command}"),
+                };
+                let variable = format!("selected_{}", command.replace('-', "_"));
+                assert_eq!(
+                    document["vars"][&variable].as_str(),
+                    Some(installed_field_expression(true, command, 0).as_str())
+                );
+                let selected = format!("vars.{variable}");
+                let value = format!("{{{{ {selected} }}}}");
+                let pin_tool =
+                    format!(r#"read_toml(path=vars.chrono_pins)["tools"]["http:{command}"]"#);
+                let pinned_version = format!(r#"{{{{ {pin_tool}["version"] }}}}"#);
+                let version = when_selected(&selected, &value, &pinned_version);
+                assert_eq!(tool["version"].as_str(), Some(version.as_str()));
+                let platforms = tool["platforms"].as_table().unwrap();
+                assert_eq!(platforms.len(), 2);
+                for (name, linux) in [("linux-x64", true), ("macos-arm64", false)] {
+                    let (suffix, index) = installed_asset(linux);
+                    let pin = format!(r#"{pin_tool}["platforms"]["{name}"]"#);
+                    let asset = format!(
+                        "https://github.com/{repository}/releases/download/v{value}/{command}-{suffix}"
+                    );
+                    let pinned_url = format!(r#"{{{{ {pin}["url"] }}}}"#);
+                    let url = when_selected(&selected, &asset, &pinned_url);
+                    let checksum = installed_field_expression(false, command, index)
+                        .replace("SELECTED", &selected)
+                        .replace("PLATFORM", &pin);
+                    assert_eq!(platforms[name]["url"].as_str(), Some(url.as_str()));
+                    assert_eq!(
+                        platforms[name]["checksum"].as_str(),
+                        Some(checksum.as_str())
+                    );
+                }
+            }
+        }
+    }
+}
+
 // Cargo builds this same release obligation as an executable for the publishing workflow.
 mod release_observation {
     #[cfg(not(verus_keep_ghost))]

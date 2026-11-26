@@ -244,7 +244,16 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci-tests/tests/verified_consumption.rs",
+            "operation": "verify.ci-preparation-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".github/ISSUE_TEMPLATE/bug.yml",
