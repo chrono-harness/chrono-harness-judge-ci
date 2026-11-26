@@ -13,6 +13,14 @@ pub mod reply_validation {
     pub use crate::project_execution::{ReplyGap, needs_receipt, reply_gap};
 }
 
+#[cfg(verus_keep_ghost)]
+#[path = "source_binding.rs"]
+pub mod output_contracts;
+#[cfg(not(verus_keep_ghost))]
+pub mod output_contracts {
+    pub use crate::source_binding::{BindingMethod, compiler_outputs};
+}
+
 verus! {
 
 /// A data frame carries the permitted new stream length; a terminal carries its JSON length.
