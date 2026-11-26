@@ -1,14 +1,31 @@
 //! File and executable identities used to bind the CI judge inputs.
+#[cfg(not(verus_keep_ghost))]
 use sha2::{Digest, Sha256};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
-pub fn sha256(data: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(data))
+use vstd::prelude::*;
+
+verus! {
+/// Count the bytes accepted by the sink before publishing a file identity.
+pub fn stream_byte_count(previous: u64, written: u64) -> (next: Option<u64>)
+    ensures
+        previous as int + written as int <= u64::MAX ==> next == Some((previous + written) as u64),
+        previous as int + written as int > u64::MAX ==> next.is_none(),
+{
+    previous.checked_add(written)
 }
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub fn sha256(data: &[u8]) -> String {
+    hex::encode(Sha256::digest(data))
+}
+#[cfg(not(verus_keep_ghost))]
 fn copy_hashed(mut input: impl Read, mut output: impl Write) -> Result<(String, u64), String> {
     let mut buffer = [0; 65536];
     let mut hash = Sha256::new();
@@ -20,10 +37,11 @@ fn copy_hashed(mut input: impl Read, mut output: impl Write) -> Result<(String, 
         }
         output.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
         hash.update(&buffer[..n]);
-        total = total.checked_add(n as u64).ok_or("stream size overflow")?;
+        total = stream_byte_count(total, n as u64).ok_or("stream size overflow")?;
     }
-    Ok((format!("{:x}", hash.finalize()), total))
+    Ok((hex::encode(hash.finalize()), total))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn file_identity(path: &Path) -> Result<(String, u64), String> {
     if !fs::metadata(path)
         .map_err(|e| format!("{}: {e}", path.display()))?
@@ -37,6 +55,7 @@ pub fn file_identity(path: &Path) -> Result<(String, u64), String> {
     }
     copy_hashed(input, std::io::sink())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn resolve_program(
     root: &Path,
     program: &str,
@@ -48,6 +67,7 @@ pub fn resolve_program(
         .ok_or_else(|| format!("executable not found: {program}"))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn program_candidates(
     root: &Path,
     program: &str,
@@ -67,6 +87,7 @@ pub(crate) fn program_candidates(
 }
 
 /// Check the runner wire's lexical relative path before using native host filesystem APIs.
+#[cfg(not(verus_keep_ghost))]
 pub fn relative_path(relative: &str) -> Result<(), String> {
     if relative.is_empty()
         || relative == "."
@@ -81,6 +102,7 @@ pub fn relative_path(relative: &str) -> Result<(), String> {
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn no_symlink_parents(root: &Path, relative: &str) -> Result<PathBuf, String> {
     relative_path(relative)?;
     let mut path = root.to_owned();

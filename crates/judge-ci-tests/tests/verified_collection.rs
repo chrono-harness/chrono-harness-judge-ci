@@ -12,6 +12,16 @@ use expectation::expect;
 use vstd::prelude::*;
 
 verus! {
+/// The last representable byte succeeds; counting one more must fail.
+fn observed_file_length_boundaries(previous: u64) {
+    let remaining = u64::MAX - previous;
+    expect(policy::file_counts::stream_byte_count(previous, remaining) == Some(u64::MAX));
+    expect(policy::file_counts::stream_byte_count(previous, 0) == Some(previous));
+    if remaining < u64::MAX {
+        expect(policy::file_counts::stream_byte_count(previous, remaining + 1).is_none());
+    }
+}
+
 /// Independently answer one query by reading the submitted methods from the end.
 fn compare_compiler_output<C>(methods: &[policy::output_contracts::BindingMethod<C>], query: &str) {
     use policy::output_contracts::compiler_outputs;

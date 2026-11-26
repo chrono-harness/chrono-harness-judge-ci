@@ -14,6 +14,14 @@ pub mod reply_validation {
 }
 
 #[cfg(verus_keep_ghost)]
+#[path = "files.rs"]
+pub mod file_counts;
+#[cfg(not(verus_keep_ghost))]
+pub mod file_counts {
+    pub use crate::files::stream_byte_count;
+}
+
+#[cfg(verus_keep_ghost)]
 #[path = "source_binding.rs"]
 pub mod output_contracts;
 #[cfg(not(verus_keep_ghost))]
