@@ -128,8 +128,8 @@
         "role": "program",
         "roots": [
           {
-            "path": "crates/judge-ci-tests/tests/verified_consumption.rs",
-            "operation": "verify.ci-preparation-tests"
+            "path": "crates/judge-ci-tests/tests/host_installation.rs",
+            "operation": "verify.host-installation"
           }
         ]
       }
@@ -250,8 +250,8 @@
         "role": "program",
         "roots": [
           {
-            "path": "crates/judge-ci-tests/tests/verified_consumption.rs",
-            "operation": "verify.ci-preparation-tests"
+            "path": "crates/judge-ci-tests/tests/host_installation.rs",
+            "operation": "verify.host-installation"
           }
         ]
       }
@@ -271,8 +271,8 @@
         "role": "program",
         "roots": [
           {
-            "path": "crates/judge-ci-tests/tests/verified_consumption.rs",
-            "operation": "verify.ci-preparation-tests"
+            "path": "crates/judge-ci-tests/tests/host_installation.rs",
+            "operation": "verify.host-installation"
           }
         ]
       }
@@ -494,6 +494,27 @@
           "to": "test:judge-ci-tests"
         }
       ]
+    },
+    {
+      "path": "crates/judge-ci-tests/tests/host_installation.rs",
+      "owner": "judge-ci-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci-tests/tests/host_installation.rs",
+            "operation": "verify.host-installation"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci-tests/tests/impact_query.rs",
@@ -1076,6 +1097,7 @@
         "verify.ci-collection-tests",
         "verify.ci-preparation",
         "verify.ci-preparation-tests",
+        "verify.host-installation",
         "judge-ci.owner-check"
       ],
       "timeout_seconds": 600,
