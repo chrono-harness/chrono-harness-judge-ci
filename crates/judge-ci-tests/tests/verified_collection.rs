@@ -32,6 +32,22 @@ fn observed_file_length_boundaries(previous: u64) {
     }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn text_comparison_preserves_exact_utf8_contents() {
+    use policy::verified_text::equal_text;
+    proof {
+        reveal_strlit(""); reveal_strlit("编"); reveal_strlit("编译"); reveal_strlit("编码");
+        assert(""@.len() != "编"@.len());
+        assert("编译"@.len() != "编"@.len());
+        assert("编译"@[1] != "编码"@[1]);
+    }
+    expect(equal_text("", ""));
+    expect(equal_text("编译", "编译"));
+    expect(!equal_text("", "编"));
+    expect(!equal_text("编译", "编"));
+    expect(!equal_text("编译", "编码"));
+}
+
 /// Independently answer one query by reading the submitted methods from the end.
 fn compare_compiler_output<C>(methods: &[policy::output_contracts::BindingMethod<C>], query: &str) {
     use policy::output_contracts::compiler_outputs;
@@ -49,7 +65,7 @@ fn compare_compiler_output<C>(methods: &[policy::output_contracts::BindingMethod
     {
         end -= 1;
         let row = &methods[end];
-        if <&str as vstd::contrib::exec_spec::ExecSpecEq>::exec_eq(row.operation, query) {
+        if policy::verified_text::equal_text(row.operation, query) {
             if let Some(_) = &row.output_contract {
                 assert(methods@[end as int].operation@ == query@);
                 expect(required);
@@ -103,7 +119,7 @@ fn for_proof_receipt(operation: &str) {
     match gap {
         Some(ReplyGap::Receipt(name, proof_required)) => {
             expect(proof_required);
-            expect(<&str as vstd::contrib::exec_spec::ExecSpecEq>::exec_eq(name, operation));
+            expect(policy::verified_text::equal_text(name, operation));
         },
         _ => { expect(false); },
     }

@@ -1,7 +1,10 @@
 //! Boundary proofs exercise the same executable preparation predicate.
 #![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
 #[path = "../../judge-ci/src/verified_consumption.rs"]
 mod policy;
+#[cfg(not(verus_keep_ghost))]
+use chrono_judge_ci::verified_consumption as policy;
 use vstd::prelude::*;
 
 // Cargo builds this same release obligation as an executable for the publishing workflow.

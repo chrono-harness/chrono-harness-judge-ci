@@ -1,5 +1,11 @@
 //! 精确判定已明确登记的 bootstrap 准备前置。
-use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+#[path = "verified_text.rs"]
+mod verified_text;
+use self::verified_text::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_collection::verified_text;
 
 verus! {
 
@@ -26,11 +32,11 @@ pub fn matches_preparation(
         schema@, prerequisites@, verifier@, executor@, verifier_program@, projects@, expected_projects@),
 {
     command.len() == 4
-        && <&str>::exec_eq(command[0], program) && <&str>::exec_eq(command[1], script)
-        && <&str>::exec_eq(command[2], ".") && <&str>::exec_eq(command[3], config)
-        && <&str>::exec_eq(schema, "chrono-bootstrap/v1")
-        && prerequisites.len() == 1 && <&str>::exec_eq(prerequisites[0], verifier)
-        && <&str>::exec_eq(executor, verifier_program) && <&str>::exec_eq(projects, expected_projects)
+        && equal_text(command[0], program) && equal_text(command[1], script)
+        && equal_text(command[2], ".") && equal_text(command[3], config)
+        && equal_text(schema, "chrono-bootstrap/v1")
+        && prerequisites.len() == 1 && equal_text(prerequisites[0], verifier)
+        && equal_text(executor, verifier_program) && equal_text(projects, expected_projects)
 }
 
 }

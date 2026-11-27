@@ -1,5 +1,8 @@
 //! 现役 CI 的执行结果转换、终态与离线结果集合合同。
-use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
+use vstd::prelude::*;
+#[path = "verified_text.rs"]
+pub mod verified_text;
+use self::verified_text::equal_text;
 
 #[path = "result_types.rs"]
 pub mod result_types;
@@ -106,8 +109,8 @@ pub fn observed_stream_matches(
         && declared_out_sha@ == actual_out_sha@ && declared_err_sha@ == actual_err_sha@),
 {
     trailing == 0 && declared_out == actual_out && declared_err == actual_err
-        && <&str>::exec_eq(declared_out_sha, actual_out_sha)
-        && <&str>::exec_eq(declared_err_sha, actual_err_sha)
+        && equal_text(declared_out_sha, actual_out_sha)
+        && equal_text(declared_err_sha, actual_err_sha)
 }
 
 pub fn observed_process_matches(launcher: Option<u32>, expected: u32, child: Option<u32>,
@@ -116,7 +119,7 @@ pub fn observed_process_matches(launcher: Option<u32>, expected: u32, child: Opt
         && digest@ == expected_digest@),
 {
     matches!(launcher, Some(pid) if pid == expected) && matches!(child, Some(pid) if pid != 0)
-        && <&str>::exec_eq(digest, expected_digest)
+        && equal_text(digest, expected_digest)
 }
 
 /// Read one extra byte to detect growth after metadata observation.
@@ -145,7 +148,7 @@ pub fn bounded_original(bytes: Vec<u8>, limit: u64) -> (result: Result<Vec<u8>, 
 pub fn profile_matches(observed: &str, declared: &str) -> (ok: bool)
     ensures ok == (observed@ == declared@),
 {
-    <&str>::exec_eq(observed, declared)
+    equal_text(observed, declared)
 }
 
 /// The report must name the path registered for this exact unit.
@@ -153,7 +156,7 @@ pub fn report_path_matches(registered: Option<&str>, declared: &str) -> (ok: boo
     ensures ok == match registered { Some(path) => path@ == declared@, None => false },
 {
     match registered {
-        Some(path) => <&str>::exec_eq(path, declared),
+        Some(path) => equal_text(path, declared),
         None => false,
     }
 }
@@ -166,7 +169,7 @@ pub fn admitted_report<'a>(bytes: &'a [u8], observed: &str, declared: &str)
         None => observed@ != declared@,
     },
 {
-    if <&str>::exec_eq(observed, declared) { Some(bytes) } else { None }
+    if equal_text(observed, declared) { Some(bytes) } else { None }
 }
 
 /// Preserve the receipt and forward its original stdout only when a passed
@@ -245,9 +248,9 @@ pub fn operation_result(
         row.cause@ == operation_cause(error),
         row.exit_code == operation_exit(state@, observed),
 {
-    let passed = <&str>::exec_eq(state, "passed");
+    let passed = equal_text(state, "passed");
     let status = if passed { Status::Passed }
-        else if <&str>::exec_eq(state, "blocked") { Status::Blocked }
+        else if equal_text(state, "blocked") { Status::Blocked }
         else { Status::Failed };
     let cause = match error {
         Some(cause) => cause.clone(),
@@ -282,7 +285,7 @@ pub fn operation_result_with_sources<T>(
 {
     match binding {
         Err(cause) => {
-            if <&str>::exec_eq(state, "passed") {
+            if equal_text(state, "passed") {
                 proof {
                     reveal_strlit("failed"); reveal_strlit("passed"); reveal_strlit("blocked");
                     assert("failed"@[0] != "passed"@[0]);
@@ -446,7 +449,7 @@ pub fn has_result(
         decreases values.len() - i,
     {
         let value = &values[i];
-        if <&str>::exec_eq(value.id.as_str(), id) && value.status as u8 == *status as u8
+        if equal_text(value.id.as_str(), id) && value.status as u8 == *status as u8
             && value.exit_code == exit_code {
             return true;
         }
@@ -498,7 +501,7 @@ pub fn contains_text(values: &Vec<&str>, target: &str) -> (found: bool)
             forall|j: int| 0 <= j < i ==> (#[trigger] values[j])@ != target@,
         decreases values.len() - i,
     {
-        if <&str>::exec_eq(values[i], target) { return true; }
+        if equal_text(values[i], target) { return true; }
         i += 1;
     }
     false
