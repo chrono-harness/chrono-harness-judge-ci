@@ -44,6 +44,13 @@ pub mod timeout_bounds {
     pub use crate::route_wire::decimal_timeout;
 }
 
+#[cfg(verus_keep_ghost)]
+#[path = "collect.rs"]
+pub mod unit_admission;
+#[cfg(verus_keep_ghost)]
+#[path = "units.rs"]
+pub mod unit_protocol;
+
 verus! {
 
 /// A data frame carries the permitted new stream length; a terminal carries its JSON length.

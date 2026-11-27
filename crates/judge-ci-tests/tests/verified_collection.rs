@@ -14,6 +14,35 @@ use vstd::prelude::*;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn collection_protocol_and_row_identity(unit: String, manifest: String, row: &CheckResult) {
+    use policy::unit_protocol::selected_protocol;
+    use policy::unit_admission::{response_header, row_error};
+    let unit_version = selected_protocol(&Some(unit), "chrono-ci-judge/v1");
+    let collect_version = selected_protocol(&Some(manifest), "chrono-ci-judge/v1");
+    let unscoped = selected_protocol(&None::<String>, "chrono-ci-judge/v1");
+    let name = row.id.as_str();
+    let valid = response_header(unit_version, name, name, 1, true);
+    let wrong = response_header(unscoped, name, name, 1, true);
+    let empty = response_header(collect_version, name, name, 0, true);
+    let missing = response_header(collect_version, name, name, 1, false);
+    proof {
+        reveal_strlit("chrono-ci-judge/v1"); reveal_strlit("chrono-ci-judge/v2");
+        assert("chrono-ci-judge/v1"@[17] != "chrono-ci-judge/v2"@[17]);
+    }
+    assert(valid && !wrong && !empty && !missing);
+    let duplicate = row_error(row, false);
+    assert(duplicate == Some("invalid/duplicate judge result"));
+    let result = row_error(row, true);
+    assert(row.id@ != ""@ && row.cause@ != ""@ ==> result.is_some() == match row.status {
+            Status::Passed => match row.exit_code { Some(value) => value != 0, None => false },
+            Status::Failed => row.exit_code == Some(0i32),
+            Status::NotRequired => row.exit_code.is_some(),
+            Status::Blocked => false,
+        });
+}
+
+
+#[cfg(verus_keep_ghost)]
 fn exit_status_survives_diagnostic_delivery(code: u8, sink_accepts: bool) {
     let selected = policy::cli::finish(Ok::<u8, u8>(code), |_error: u8| false);
     let rejected = policy::cli::finish(Err::<u8, u8>(17), |error: u8| error == 17 && sink_accepts);
@@ -792,6 +821,57 @@ fn diagnostics_preserve_request_status_with_open_and_closed_writers() {
         assert_eq!(
             cli::finish(Ok(code), |_: &str| panic!("unexpected diagnostic")),
             code
+        );
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn collected_rows_report_the_first_protocol_violation() {
+    use chrono_judge_ci::unit_response;
+    use serde_json::json;
+    let row = json!({"id":"编译", "status":"passed", "cause":"ok", "exit_code":0});
+    let original = json!({"protocol":"chrono-ci-judge/v2", "request_id":"host", "status":"passed",
+                         "results":[row], "evidence":{"unit":"build"}});
+    for (field, value, error) in [
+        ("id", json!(""), "invalid/duplicate judge result"),
+        ("cause", json!(""), "invalid/duplicate judge result"),
+        ("exit_code", json!(7), "passed result has failing exit"),
+        (
+            "status",
+            json!("failed"),
+            "failed result has successful exit",
+        ),
+        (
+            "status",
+            json!("not-required"),
+            "not-required result must have null exit_code",
+        ),
+    ] {
+        let mut report = original.clone();
+        report["results"][0][field] = value;
+        assert_eq!(unit_response(&report, "host", 0).err().unwrap(), error);
+    }
+    let mut duplicate = original.clone();
+    let mut invalid = row;
+    invalid["exit_code"] = json!(1);
+    duplicate["results"].as_array_mut().unwrap().push(invalid);
+    assert_eq!(
+        unit_response(&duplicate, "host", 0).err().unwrap(),
+        "invalid/duplicate judge result"
+    );
+    for (field, value) in [
+        ("protocol", json!("chrono-ci-judge/v1")),
+        ("request_id", json!("Host")),
+        ("results", json!([])),
+        ("evidence", json!({})),
+        ("evidence", json!([])),
+    ] {
+        let mut report = duplicate.clone();
+        report[field] = value;
+        assert_eq!(
+            unit_response(&report, "host", 0).err().unwrap(),
+            "empty or mismatched judge response"
         );
     }
 }

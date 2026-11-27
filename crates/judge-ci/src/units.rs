@@ -1,9 +1,28 @@
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::runtime_session::Session;
+#[cfg(not(verus_keep_ghost))]
 use crate::wire::{Scope, Unit};
 
-pub(super) const SCOPED_PROTOCOL: &str = "chrono-ci-judge/v2";
+use vstd::prelude::*;
 
+verus! {
+pub const SCOPED_PROTOCOL: &'static str = "chrono-ci-judge/v2";
+
+pub fn selected_protocol<'a, T>(scope: &Option<T>, unscoped: &'a str) -> (protocol: &'a str)
+    ensures protocol@ == if scope.is_some() { "chrono-ci-judge/v2"@ } else { unscoped@ },
+{
+    if scope.is_some() { SCOPED_PROTOCOL } else { unscoped }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub(super) fn scope_protocol(req: &Request) -> &str {
+    selected_protocol(&req.scope, PROTOCOL)
+}
+
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn artifact_path(path: &str) -> Result<(), String> {
     relative_path(path)?;
     if !path.starts_with(".chrono-harness/state/") {
@@ -14,6 +33,7 @@ pub(super) fn artifact_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn reference_publication(root: &Path, config: &CheckConfig) -> Result<bool, String> {
     if config.policy.get("report_publication").is_none() {
         return Ok(false);
@@ -25,6 +45,7 @@ pub(super) fn reference_publication(root: &Path, config: &CheckConfig) -> Result
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn report_path(
     root: &Path,
     config: &CheckConfig,
@@ -37,6 +58,7 @@ pub(super) fn report_path(
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn validate(config: &CheckConfig, policy: &Policy) -> Result<(), String> {
     if config.schema != "chrono-ci-check/v3" {
         if config.policy.get("units").is_some()
@@ -94,6 +116,7 @@ pub(super) fn validate(config: &CheckConfig, policy: &Policy) -> Result<(), Stri
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn assignments(
     root: &Path,
     query: &Query<'_>,
@@ -120,6 +143,7 @@ pub(super) fn assignments(
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn selection(
     root: &Path,
     units: &BTreeMap<String, Unit>,
@@ -133,6 +157,7 @@ pub(super) fn selection(
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn required(
     root: &Path,
     units: &BTreeMap<String, Unit>,
@@ -145,14 +170,7 @@ pub(super) fn required(
     )
 }
 
-pub(super) fn scope_protocol(req: &Request) -> &str {
-    if req.scope.is_some() {
-        SCOPED_PROTOCOL
-    } else {
-        PROTOCOL
-    }
-}
-
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn decorate(
     req: &Request,
     snapshot: &Snapshot,
