@@ -151,7 +151,7 @@ pub mod retained_session {
 pub mod judge_request;
 #[cfg(not(verus_keep_ghost))]
 pub mod judge_request {
-    pub use crate::valid_oid_bytes;
+    pub use crate::{inherited_key_allowed, valid_oid_bytes};
 }
 #[cfg(verus_keep_ghost)]
 #[path = "wire.rs"]
