@@ -882,7 +882,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_consumption.rs",
+            "operation": "verify.ci-preparation"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_consumption.rs",
+            "operation": "verify.ci-preparation-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/diagnostic_session.rs",
@@ -994,7 +1007,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/main.rs",
@@ -1331,7 +1357,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/storage.rs",
@@ -1368,7 +1407,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/units.rs",
@@ -1488,7 +1540,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "docs/licenses/methodology-attribution.md",

@@ -18,6 +18,27 @@ mod native_requirements;
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn scoped_requests_and_original_git_rows_follow_host_inputs() {
+    use policy::{judge_request::valid_oid_bytes,request_wire::{request_header,Scope},git_rows::external_rows,trace_metadata::publish_metadata};
+    let invalid = [65u8];
+    expect(!valid_oid_bytes(&invalid));
+    let scope = Some(Scope::Collect { manifest:"reports".to_string() });
+    proof { reveal_strlit("id"); reveal_strlit(""); reveal_strlit("chrono-ci-judge/v1"); reveal_strlit("chrono-ci-judge/v2");
+        assert("id"@.len() != ""@.len());
+        assert("chrono-ci-judge/v1"@[17] != "chrono-ci-judge/v2"@[17]);
+    }
+    expect(request_header(&scope,"chrono-ci-judge/v2","id"));
+    expect(!request_header(&None,"chrono-ci-judge/v2","id"));
+    expect(!request_header(&scope,"chrono-ci-judge/v2",""));
+    expect(matches!(external_rows(Some(91u8),true,Some(3usize)),Ok((3,91))));
+    expect(external_rows(Some(91u8),true,None).is_err());
+    expect(external_rows(None::<u8>,false,None).is_err());
+    expect(publish_metadata(true,|| {}));
+    expect(!publish_metadata(false,|| {}));
+}
+
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn session_frames_and_terminal_failures_stay_bound() {
     use policy::{diagnostic_status::terminal_matches, git_terminal::terminal_error, original_ack::admitted_bytes,
         retained_session::{close_result,CloseFailure}, session_frame::complete_line, session_result::finish_reply};
@@ -965,5 +986,17 @@ fn public_queries_preserve_the_selected_tool_stream() {
             assert_eq!(found.unwrap_err(), "registered approach exited 17: failure");
             assert_eq!(paired.unwrap_err(), "failure");
         }
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn full_oid_accepts_only_nonzero_lower_hex_at_supported_lengths() {
+    use chrono_judge_ci::full_oid;
+    for length in [40, 64] {
+        assert!(full_oid(&"a".repeat(length)).is_ok());
+        assert!(full_oid(&"0".repeat(length)).is_err());
+        assert!(full_oid(&format!("{}F", "1".repeat(length - 1))).is_err());
+        assert!(full_oid(&"a".repeat(length - 1)).is_err());
     }
 }

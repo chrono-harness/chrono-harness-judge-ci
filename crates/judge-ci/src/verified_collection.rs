@@ -146,6 +146,35 @@ pub mod retained_session {
     pub use crate::storage::{CloseFailure, close_result};
 }
 
+#[cfg(verus_keep_ghost)]
+#[path = "lib.rs"]
+pub mod judge_request;
+#[cfg(not(verus_keep_ghost))]
+pub mod judge_request {
+    pub use crate::valid_oid_bytes;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "wire.rs"]
+pub mod request_wire;
+#[cfg(not(verus_keep_ghost))]
+pub mod request_wire {
+    pub use crate::wire::{Scope, request_header};
+}
+#[cfg(verus_keep_ghost)]
+#[path = "source_observations.rs"]
+pub mod git_rows;
+#[cfg(not(verus_keep_ghost))]
+pub mod git_rows {
+    pub use crate::source_observations::external_rows;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "trace_source.rs"]
+pub mod trace_metadata;
+#[cfg(not(verus_keep_ghost))]
+pub mod trace_metadata {
+    pub use crate::trace_source::publish_metadata;
+}
+
 verus! {
 
 /// Preserve the receipt and forward its original stdout only when a passed

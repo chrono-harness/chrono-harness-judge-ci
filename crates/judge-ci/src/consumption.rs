@@ -1,20 +1,27 @@
 //! Opted-in internal consumption references. These checks establish consistency,
 //! not the engineering judgment that a need or an output is useful.
+#[cfg(not(verus_keep_ghost))]
 use crate::scheduling_git::Reader;
+#[cfg(not(verus_keep_ghost))]
 use crate::{codec::json, files::relative_path};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Contract {
     pub schema: String,
     pub shared_startup: Vec<Chain>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Chain {
@@ -30,12 +37,14 @@ pub struct Chain {
     pub data_outputs: BTreeMap<String, DataOutput>,
     pub evidence: Evidence,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DataOutput {
     pub producer: String,
     pub consumer: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Preparation {
@@ -43,6 +52,7 @@ pub struct Preparation {
     pub config: String,
     pub verifier: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Evidence {
@@ -50,6 +60,7 @@ pub struct Evidence {
     pub operation: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn contract(value: Option<&Value>) -> Result<BTreeMap<String, Chain>, String> {
     let Some(value) = value else {
         return Ok(BTreeMap::new());
@@ -111,6 +122,7 @@ pub fn contract(value: Option<&Value>) -> Result<BTreeMap<String, Chain>, String
     Ok(rows)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StartupDeclarations {
@@ -119,6 +131,7 @@ pub struct StartupDeclarations {
     pub owners: Result<BTreeMap<String, Vec<String>>, String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StartupMethod {
@@ -129,6 +142,7 @@ pub struct StartupMethod {
 
 /// Fixed endpoint data. Only paths explicitly referenced by the adopted chain
 /// are loaded; unavailable bytes remain unavailable until that chain is checked.
+#[cfg(not(verus_keep_ghost))]
 pub struct Endpoint {
     pub adoption: Option<Value>,
     pub filemap: Value,
@@ -138,6 +152,7 @@ pub struct Endpoint {
     pub documents: BTreeMap<String, Value>,
     pub unavailable: BTreeMap<String, String>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Endpoint {
     fn declarations(&self) -> Result<&StartupDeclarations, String> {
         self.startup
@@ -239,6 +254,7 @@ impl Endpoint {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Default, Debug, Serialize)]
 pub struct Checked {
     pub checked: BTreeSet<String>,
@@ -246,6 +262,7 @@ pub struct Checked {
     pub required_tests: BTreeSet<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_delta(
     old: Option<&Endpoint>,
     new: &Endpoint,
@@ -286,14 +303,17 @@ pub fn validate_delta(
     Ok(result)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn nonempty(v: &Value) -> Result<&str, String> {
     v.as_str()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "expected nonempty string".into())
 }
+#[cfg(not(verus_keep_ghost))]
 fn argv(v: &Value) -> Result<Vec<String>, String> {
     serde_json::from_value(v.clone()).map_err(|e| format!("argv: {e}"))
 }
+#[cfg(not(verus_keep_ghost))]
 fn validate_chain(s: &Endpoint, c: &Chain) -> Result<(), String> {
     let units = s.document(&c.units)?;
     let startup = s.document(&c.startup)?;
@@ -392,7 +412,7 @@ fn validate_chain(s: &Endpoint, c: &Chain) -> Result<(), String> {
         }
         let prerequisites = argv(&config["prerequisites"])?;
         let verification = command(&p.verifier)?;
-        if !crate::verified_consumption::matches_preparation(
+        if !matches_preparation(
             &verify.iter().map(String::as_str).collect(),
             nonempty(&tool["program"])?,
             nonempty(&config["entrypoint"]["script"])?,
@@ -565,12 +585,14 @@ fn validate_chain(s: &Endpoint, c: &Chain) -> Result<(), String> {
 }
 
 /// Documents at a fixed commit. The configured Git reader retains its observed processes.
+#[cfg(not(verus_keep_ghost))]
 pub trait ScopedDocuments {
     fn read_json(&self, commit: &str, path: &str) -> Result<Value, String>;
     fn contains(&self, commit: &str, path: &str) -> Result<bool, String>;
     fn configuration(&self, commit: &str, path: &str) -> Result<(String, Value), String>;
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl ScopedDocuments for (&Reader, &Path) {
     fn read_json(&self, commit: &str, path: &str) -> Result<Value, String> {
         json(&self.0.blob(self.1, commit, path)?)
@@ -592,6 +614,7 @@ impl ScopedDocuments for (&Reader, &Path) {
 
 /// The scoped adapter delegates admission and evidence obligations to this owner.
 /// Both endpoints are immutable candidate-readable data; no old executable runs.
+#[cfg(not(verus_keep_ghost))]
 pub fn check_scoped<'a>(
     source: &impl ScopedDocuments,
     base: Option<&str>,
@@ -669,4 +692,43 @@ pub fn check_scoped<'a>(
     let old = base.map(load).transpose()?;
     let new = load(candidate)?;
     validate_delta(old.as_ref(), &new, changed, affected)
+}
+
+#[cfg(verus_keep_ghost)]
+use super::verified_text::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_collection::verified_text::equal_text;
+use vstd::prelude::*;
+verus! {
+
+#[verifier::inline]
+pub open spec fn preparation(
+    command: Seq<&str>, program: Seq<char>, script: Seq<char>, config: Seq<char>,
+    schema: Seq<char>, prerequisites: Seq<&str>, verifier: Seq<char>,
+    executor: Seq<char>, verifier_program: Seq<char>, projects: Seq<char>, expected_projects: Seq<char>,
+) -> bool {
+    command.len() == 4
+        && command[0]@ == program && command[1]@ == script
+        && command[2]@ == "."@ && command[3]@ == config
+        && schema == "chrono-bootstrap/v1"@
+        && prerequisites.len() == 1 && prerequisites[0]@ == verifier
+        && executor == verifier_program && projects == expected_projects
+}
+
+pub fn matches_preparation(
+    command: &Vec<&str>, program: &str, script: &str, config: &str,
+    schema: &str, prerequisites: &Vec<&str>, verifier: &str,
+    executor: &str, verifier_program: &str, projects: &str, expected_projects: &str,
+) -> (matches: bool)
+    ensures matches == preparation(command@, program@, script@, config@,
+        schema@, prerequisites@, verifier@, executor@, verifier_program@, projects@, expected_projects@),
+{
+    command.len() == 4
+        && equal_text(command[0], program) && equal_text(command[1], script)
+        && equal_text(command[2], ".") && equal_text(command[3], config)
+        && equal_text(schema, "chrono-bootstrap/v1")
+        && prerequisites.len() == 1 && equal_text(prerequisites[0], verifier)
+        && equal_text(executor, verifier_program) && equal_text(projects, expected_projects)
+}
+
 }
