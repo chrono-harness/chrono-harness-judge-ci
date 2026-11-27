@@ -313,7 +313,11 @@ pub(super) fn execute(
     Ok(reply.results)
 }
 
-use vstd::{contrib::exec_spec::ExecSpecEq, prelude::*};
+#[cfg(verus_keep_ghost)]
+use super::verified_text::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_collection::verified_text::equal_text;
+use vstd::prelude::*;
 
 verus! {
 
@@ -325,7 +329,7 @@ pub enum ReplyGap<'a> {
 pub fn needs_receipt(status: &str, has_receipt: bool) -> (missing: bool)
     ensures missing == (status@ == "passed"@ && !has_receipt),
 {
-    <&str>::exec_eq(status, "passed") && !has_receipt
+    equal_text(status, "passed") && !has_receipt
 }
 
 /// Select the original diagnosis after the plan and every returned identity match.
