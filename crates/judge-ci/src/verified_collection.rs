@@ -29,6 +29,14 @@ pub mod output_contracts {
     pub use crate::source_binding::{BindingMethod, compiler_outputs};
 }
 
+#[cfg(verus_keep_ghost)]
+#[path = "route_wire.rs"]
+pub mod timeout_bounds;
+#[cfg(not(verus_keep_ghost))]
+pub mod timeout_bounds {
+    pub use crate::route_wire::decimal_timeout;
+}
+
 verus! {
 
 /// A data frame carries the permitted new stream length; a terminal carries its JSON length.
