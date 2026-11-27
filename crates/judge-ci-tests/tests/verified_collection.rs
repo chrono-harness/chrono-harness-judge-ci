@@ -14,6 +14,14 @@ use vstd::prelude::*;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn exit_status_survives_diagnostic_delivery(code: u8, sink_accepts: bool) {
+    let selected = policy::cli::finish(Ok::<u8, u8>(code), |_error: u8| false);
+    let rejected = policy::cli::finish(Err::<u8, u8>(17), |error: u8| error == 17 && sink_accepts);
+    assert(selected == code && rejected == 2);
+}
+
+
+#[cfg(verus_keep_ghost)]
 fn exact_timeout_edges() {
     let before = policy::timeout_bounds::decimal_timeout(9007199254740991);
     let boundary = policy::timeout_bounds::decimal_timeout(9007199254740992);
@@ -738,4 +746,52 @@ fn routing_requires_all_blockers_to_be_cleared() {
     expect(!policy::can_validate_selected_plan(&blocked));
 }
 
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[allow(dead_code, unexpected_cfgs)]
+#[path = "../../judge-ci/src/main.rs"]
+mod cli;
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn diagnostics_preserve_request_status_with_open_and_closed_writers() {
+    use std::io::{self, Write};
+    struct Closed;
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut bytes = Vec::new();
+    for code in ["E_REQUEST", "E_REQUIREMENTS"] {
+        bytes.clear();
+        assert_eq!(
+            cli::finish(Err("invalid"), |msg| cli::write_diagnostic(
+                &mut bytes, code, msg
+            )),
+            2
+        );
+        assert_eq!(bytes, format!("{code}: invalid\n").as_bytes());
+        let mut attempted = false;
+        assert_eq!(
+            cli::finish(Err("invalid"), |msg| {
+                attempted = true;
+                cli::write_diagnostic(&mut Closed, code, msg)
+            }),
+            2
+        );
+        assert!(attempted);
+    }
+    for code in [0u8, 1] {
+        assert_eq!(
+            cli::finish(Ok(code), |_: &str| panic!("unexpected diagnostic")),
+            code
+        );
+    }
 }

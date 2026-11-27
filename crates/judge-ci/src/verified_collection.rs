@@ -4,6 +4,10 @@ use vstd::prelude::*;
 pub mod verified_text;
 use self::verified_text::equal_text;
 
+#[cfg(verus_keep_ghost)]
+#[path = "main.rs"]
+pub mod cli;
+
 #[path = "result_types.rs"]
 pub mod result_types;
 use result_types::{CheckResult, Status};

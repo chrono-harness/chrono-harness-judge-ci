@@ -1,4 +1,34 @@
+use vstd::prelude::*;
+
+verus! {
+
+pub fn finish<E, F>(result: Result<u8, E>, diagnostic: F) -> (exit: u8)
+    where F: FnOnce(E) -> bool,
+    requires result is Err ==> diagnostic.requires((result.unwrap_err(),)),
+    ensures
+        exit == match result { Ok(status) => status, Err(_) => 2u8 },
+        result is Err ==> exists|written: bool|
+            #[trigger] diagnostic.ensures((result.unwrap_err(),), written),
+{
+    match result {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = diagnostic(error);
+            2
+        }
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use std::io::{Read, Write};
+
+#[cfg(not(verus_keep_ghost))]
+pub fn write_diagnostic(output: &mut impl Write, code: &str, message: &str) -> bool {
+    writeln!(output, "{code}: {message}").is_ok()
+}
+
+#[cfg(not(verus_keep_ghost))]
 fn run() -> u8 {
     let mut bytes = Vec::new();
     let input = std::io::stdin()
@@ -33,14 +63,14 @@ fn run() -> u8 {
             Ok(u8::from(failed))
         }
     });
-    result.unwrap_or_else(|e| {
+    finish(result, |e| {
         let code = if query { "E_REQUIREMENTS" } else { "E_REQUEST" };
         tracing::error!(event_id="cli.diagnostic", message=%format!("{code}: {e}"));
-        eprintln!("{code}: {e}");
-        2
+        write_diagnostic(&mut std::io::stderr().lock(), code, &e)
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn write_response(output: &mut impl Write, response: &impl serde::Serialize) -> Result<(), String> {
     serde_json::to_writer(&mut *output, response).map_err(|e| e.to_string())?;
     output
@@ -49,6 +79,7 @@ fn write_response(output: &mut impl Write, response: &impl serde::Serialize) -> 
         .map_err(|e| e.to_string())
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn main() -> std::process::ExitCode {
     std::process::ExitCode::from(chrono_judge_ci::cli(run))
 }
