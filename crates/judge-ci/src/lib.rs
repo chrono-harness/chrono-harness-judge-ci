@@ -42,6 +42,7 @@ mod source_observations;
 mod storage;
 #[cfg(not(verus_keep_ghost))]
 mod trace_source;
+#[cfg(not(verus_keep_ghost))]
 pub mod verified_consumption;
 #[cfg(not(verus_keep_ghost))]
 use impact_query::{Edge, Query};
@@ -55,6 +56,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 #[cfg(not(verus_keep_ghost))]
 use std::path::Path;
+#[cfg(not(verus_keep_ghost))]
 mod collect;
 #[cfg(not(verus_keep_ghost))]
 mod full_registration;
@@ -214,12 +216,7 @@ fn id(s: &str) -> Result<(), String> {
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn full_oid(s: &str) -> Result<(), String> {
-    if !matches!(s.len(), 40 | 64)
-        || !s
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        || s.bytes().all(|byte| byte == b'0')
-    {
+    if !valid_oid_bytes(s.as_bytes()) {
         return Err(format!("expected full nonzero lowercase OID: {s}"));
     }
     Ok(())
@@ -1442,7 +1439,7 @@ struct Profile {
 #[cfg(not(verus_keep_ghost))]
 impl Profile {
     fn load(req: &Request) -> Result<Self, String> {
-        if req.protocol != units::scope_protocol(req) || req.request_id.is_empty() {
+        if !crate::wire::request_header(&req.scope, &req.protocol, &req.request_id) {
             return Err("invalid request protocol/identity".into());
         }
         relative_path(&req.config_path)?;
@@ -2207,4 +2204,33 @@ fn evaluate(
     units::decorate(req, &new, &global_selected, &mut response.evidence)?;
     response.evidence["operation_state"] = object!(operation_state);
     Ok(response)
+}
+
+use vstd::prelude::*;
+verus! {
+pub open spec fn hex_byte(byte: u8) -> bool {
+    48 <= byte <= 57 || 97 <= byte <= 102
+}
+
+pub fn valid_oid_bytes(bytes: &[u8]) -> (valid: bool)
+    ensures valid == ((bytes.len() == 40 || bytes.len() == 64)
+        && (forall|i:int| 0 <= i < bytes.len() ==> hex_byte(#[trigger] bytes@[i]))
+        && (exists|i:int| 0 <= i < bytes.len() && #[trigger] bytes@[i] != 48u8)),
+{
+    if bytes.len() != 40 && bytes.len() != 64 { return false; }
+    let mut nonzero = false;
+    let mut index = 0;
+    while index < bytes.len()
+        invariant index <= bytes.len(),
+            forall|i:int| 0 <= i < index ==> hex_byte(#[trigger] bytes@[i]),
+            nonzero == (exists|i:int| 0 <= i < index && #[trigger] bytes@[i] != 48u8),
+        decreases bytes.len()-index,
+    {
+        let byte = bytes[index];
+        if !(48 <= byte && byte <= 57 || 97 <= byte && byte <= 102) { return false; }
+        if byte != 48 { nonzero = true; }
+        index += 1;
+    }
+    nonzero
+}
 }
