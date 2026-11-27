@@ -1,6 +1,9 @@
 //! Original fixed registry endpoints used for full scheduling.
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, de::DeserializeOwned};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -9,6 +12,7 @@ use std::{
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(crate) struct Snapshot {
     pub(crate) values: BTreeMap<String, Value>,
@@ -17,12 +21,14 @@ pub(crate) struct Snapshot {
     pub(crate) originals: BTreeMap<String, String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Inputs {
     pub(crate) previous: Snapshot,
     pub(crate) candidate: Snapshot,
     pub(crate) observation: Value,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn read(
     root: &Path,
     profile: &str,
@@ -47,6 +53,7 @@ pub(crate) fn read(
     Ok(inputs)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn collect(
     mut input: impl Write,
     mut output: impl BufRead,
@@ -85,11 +92,9 @@ pub(crate) fn collect(
     exchange::<()>(&mut input, &mut output, verify)?;
     let observation: Value = exchange(&mut input, &mut output, json!({"op":"observation"}))?;
     drop(input);
-    if !output.fill_buf().map_err(|e| e.to_string())?.is_empty() {
-        return Err("E_PROTOCOL: trailing Git facts response".into());
-    }
-    if open.bound == observation.is_null() {
-        return Err("E_GIT_FACTS: session returned a different binding".into());
+    let trailing = !output.fill_buf().map_err(|e| e.to_string())?.is_empty();
+    if let Some(error) = terminal_error(trailing, open.bound, observation.is_null()) {
+        return Err(error.into());
     }
     Ok(Inputs {
         previous,
@@ -98,6 +103,7 @@ pub(crate) fn collect(
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn exchange<T: DeserializeOwned>(
     input: &mut impl Write,
     output: &mut impl BufRead,
@@ -112,17 +118,19 @@ fn exchange<T: DeserializeOwned>(
     output
         .read_until(b'\n', &mut frame)
         .map_err(|e| e.to_string())?;
-    if frame.last() != Some(&b'\n') {
+    if !crate::codec::complete_line(&frame) {
         return Err("E_PROTOCOL: incomplete Git facts response".into());
     }
     serde_json::from_slice::<Result<T, String>>(&frame).map_err(|e| e.to_string())?
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct Connection {
     child: Child,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Connection {
     fn close(&mut self) -> Result<(), String> {
         self.input.take();
@@ -147,6 +155,7 @@ impl Connection {
         )
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Connection {
     fn drop(&mut self) {
         self.input.take();
@@ -154,6 +163,7 @@ impl Drop for Connection {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Default)]
 pub(crate) struct Reader {
     root: PathBuf,
@@ -161,6 +171,7 @@ pub(crate) struct Reader {
     candidate: String,
     connection: Option<RefCell<Connection>>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Reader {
     pub fn open(
         root: &Path,
@@ -285,9 +296,23 @@ impl Reader {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(crate) struct Entry {
     pub mode: String,
     pub kind: String,
     pub oid: String,
+}
+
+use vstd::prelude::*;
+verus! {
+pub fn terminal_error(trailing: bool, bound: bool, null_facts: bool) -> (error: Option<&'static str>)
+    ensures error == if trailing { Some("E_PROTOCOL: trailing Git facts response") }
+        else if bound == null_facts { Some("E_GIT_FACTS: session returned a different binding") }
+        else { None },
+{
+    if trailing { Some("E_PROTOCOL: trailing Git facts response") }
+    else if bound == null_facts { Some("E_GIT_FACTS: session returned a different binding") }
+    else { None }
+}
 }

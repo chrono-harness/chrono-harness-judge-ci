@@ -103,6 +103,49 @@ pub mod route_reply {
     pub use crate::route_query::receipt_header;
 }
 
+#[cfg(verus_keep_ghost)]
+#[path = "codec.rs"]
+pub mod session_frame;
+#[cfg(not(verus_keep_ghost))]
+pub mod session_frame {
+    pub use crate::codec::complete_line;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "diagnostic_session.rs"]
+pub mod diagnostic_status;
+#[cfg(not(verus_keep_ghost))]
+pub mod diagnostic_status {
+    pub use crate::diagnostic_session::terminal_matches;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "scheduling_git.rs"]
+pub mod git_terminal;
+#[cfg(not(verus_keep_ghost))]
+pub mod git_terminal {
+    pub use crate::scheduling_git::terminal_error;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "runtime_session/originals.rs"]
+pub mod original_ack;
+#[cfg(not(verus_keep_ghost))]
+pub mod original_ack {
+    pub use crate::runtime_session::originals::admitted_bytes;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "runtime_session.rs"]
+pub mod session_result;
+#[cfg(not(verus_keep_ghost))]
+pub mod session_result {
+    pub use crate::runtime_session::finish_reply;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "storage.rs"]
+pub mod retained_session;
+#[cfg(not(verus_keep_ghost))]
+pub mod retained_session {
+    pub use crate::storage::{CloseFailure, close_result};
+}
+
 verus! {
 
 /// Preserve the receipt and forward its original stdout only when a passed

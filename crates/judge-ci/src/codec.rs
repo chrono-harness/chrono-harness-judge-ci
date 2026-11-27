@@ -1,6 +1,9 @@
 //! Reject repeated JSON members before binding the scoped request, raw receipts, or host declarations.
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 fn strict_json_value<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Value, D::Error> {
     struct Strict;
     impl<'de> serde::de::Visitor<'de> for Strict {
@@ -62,18 +65,30 @@ fn strict_json_value<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Value, D:
     }
     d.deserialize_any(Strict)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn json(bytes: &[u8]) -> Result<Value, String> {
     let mut d = serde_json::Deserializer::from_slice(bytes);
     let v = strict_json_value(&mut d).map_err(|e| e.to_string())?;
     d.end().map_err(|e| e.to_string())?;
     Ok(v)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     serde_json::from_value(json(bytes)?).map_err(|e| e.to_string())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn digest<T: serde::Serialize>(value: &T) -> Result<String, String> {
     Ok(crate::files::sha256(
         &serde_jcs::to_vec(value).map_err(|e| e.to_string())?,
     ))
+}
+
+use vstd::prelude::*;
+verus! {
+pub fn complete_line(bytes: &[u8]) -> (complete: bool)
+    ensures complete == (bytes.len() > 0 && bytes@[bytes.len()-1] == 10u8),
+{
+    bytes.len() > 0 && bytes[bytes.len()-1] == 10u8
+}
 }

@@ -1,7 +1,11 @@
 //! Blocking JSON lines connection to a single native runner capability.
-mod originals;
+#[cfg(not(verus_keep_ghost))]
+pub(crate) mod originals;
+#[cfg(not(verus_keep_ghost))]
 use serde::de::DeserializeOwned;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     io::{BufReader, Write},
     os::{fd::OwnedFd, unix::net::UnixStream},
@@ -9,12 +13,14 @@ use std::{
     process::{Child, ChildStdout, Stdio},
 };
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Session {
     child: Child,
     pub(crate) socket: Option<UnixStream>,
     output: BufReader<ChildStdout>,
     name: &'static str,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Session {
     pub fn open(root: &Path, program: &Path, name: &'static str) -> Result<Self, String> {
         let (socket, input) = UnixStream::pair().map_err(|e| e.to_string())?;
@@ -42,9 +48,8 @@ impl Session {
     ) -> Result<T, String> {
         let runner = crate::observed::installed(root)?;
         let mut session = Self::open(root, &runner, capability)?;
-        let response = session.call(input)?;
-        session.close()?;
-        Ok(response)
+        let response = session.call(input);
+        finish_reply(response, session.close())
     }
 
     pub(crate) fn selected_config(root: &Path, path: &str) -> Result<Value, String> {
@@ -112,6 +117,7 @@ impl Session {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Session {
     fn drop(&mut self) {
         if let Some(socket) = self.socket.take() {
@@ -120,4 +126,14 @@ impl Drop for Session {
         let _ = std::io::copy(&mut self.output, &mut std::io::sink());
         let _ = self.child.wait();
     }
+}
+
+use vstd::prelude::*;
+verus! {
+pub fn finish_reply<T, E>(reply: Result<T,E>, closed: Result<(),E>) -> (result: Result<T,E>)
+    ensures result == match reply { Err(error) => Err(error),
+        Ok(value) => match closed { Err(error) => Err(error), Ok(()) => Ok(value) } },
+{
+    match reply { Err(error) => Err(error), Ok(value) => match closed { Err(error) => Err(error), Ok(()) => Ok(value) } }
+}
 }
