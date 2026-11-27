@@ -19,6 +19,15 @@ verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn scoped_requests_and_original_git_rows_follow_host_inputs() {
+    use policy::judge_request::inherited_key_allowed;
+    let name = [80u8,65u8,84u8,72u8];
+    expect(inherited_key_allowed(&name,false,false));
+    expect(!inherited_key_allowed(&name,true,false));
+    expect(!inherited_key_allowed(&name,false,true));
+    expect(!inherited_key_allowed(&[],false,false));
+    expect(!inherited_key_allowed(&[65u8,61u8],false,false));
+    expect(!inherited_key_allowed(&[0u8,66u8],false,false));
+
     use policy::{judge_request::valid_oid_bytes,request_wire::{request_header,Scope},git_rows::external_rows,trace_metadata::publish_metadata};
     let invalid = [65u8];
     expect(!valid_oid_bytes(&invalid));

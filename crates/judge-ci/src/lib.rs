@@ -144,6 +144,8 @@ pub struct Policy {
     pub bindings: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub environment: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub inherit_environment: BTreeSet<String>,
     pub artifacts: Vec<String>,
     pub required_inputs: Vec<String>,
     pub adoption_base: Option<String>,
@@ -267,6 +269,20 @@ fn policy(root: &Path, c: &CheckConfig) -> Result<Policy, String> {
         return Err("v1 cannot declare facts_config, including null".into());
     }
     let p: Policy = serde_json::from_value(c.policy.clone()).map_err(|e| e.to_string())?;
+    if p.registration_config.is_some() && !p.inherit_environment.is_empty() {
+        return Err(
+            "registered environments select inherited inputs in registration_config".into(),
+        );
+    }
+    if p.inherit_environment.iter().any(|key| {
+        !inherited_key_allowed(
+            key.as_bytes(),
+            key == "CHRONO_PROCESS_FDS",
+            p.environment.contains_key(key),
+        )
+    }) {
+        return Err("invalid or overlapping inherited operation environment key".into());
+    }
     if c.schema == "chrono-ci-check/v2" {
         let path = p
             .facts_config
@@ -910,10 +926,12 @@ fn ci_impact(
             }
         }
         let changed_tools = changed(&old.tools, &new.tools);
-        if !changed_tools.is_empty() || old.policy.environment != new.policy.environment {
+        let changed_environment = old.policy.environment != new.policy.environment
+            || old.policy.inherit_environment != new.policy.inherit_environment;
+        if !changed_tools.is_empty() || changed_environment {
             for s in [old, new] {
                 for (test, ops) in &s.policy.bindings {
-                    if old.policy.environment != new.policy.environment
+                    if changed_environment
                         || ops.iter().any(|op| {
                             s.operations
                                 .get(op)
@@ -921,7 +939,7 @@ fn ci_impact(
                         })
                     {
                         let reasons = extras.entry(test.clone()).or_default();
-                        if old.policy.environment != new.policy.environment {
+                        if changed_environment {
                             reasons.insert("changed environment".into());
                         }
                         for tool in &changed_tools {
@@ -1719,11 +1737,13 @@ fn inventory_profile(
     let mut retirement_context = object!({});
     let mut conversion = Value::Null;
     let mut reused = BTreeMap::new();
-    let mut environment: BTreeMap<String, String> = std::env::vars().collect();
-    environment.extend(p.environment.clone());
-    #[cfg(unix)]
-    environment.remove("CHRONO_PROCESS_FDS");
-    let mut environment_policy = object!({"values":p.environment,"inherit":null});
+    let mut environment = p.environment.clone();
+    for key in &p.inherit_environment {
+        if let Ok(value) = std::env::var(key) {
+            environment.insert(key.clone(), value);
+        }
+    }
+    let mut environment_policy = object!({"values":p.environment,"inherit":p.inherit_environment});
     let mut declarations = object!(new.tools.values().cloned().collect::<Vec<_>>());
     if req.base.is_none() {
         if let Some(config_path) = &p.registration_config {
@@ -2208,6 +2228,23 @@ fn evaluate(
 
 use vstd::prelude::*;
 verus! {
+/// A direct operation can only import a named variable distinct from its
+/// ownership descriptor and literal input map.
+pub fn inherited_key_allowed(key: &[u8], reserved: bool, literal: bool) -> (ok: bool)
+    ensures ok == (key.len() > 0 && !reserved && !literal &&
+        forall|i:int| 0 <= i < key.len() ==> key@[i] != 0 && key@[i] != 61),
+{
+    if key.is_empty() || reserved || literal { return false; }
+    let mut i = 0usize;
+    while i < key.len()
+        invariant i <= key.len(), forall|j:int| 0 <= j < i ==> key@[j] != 0 && key@[j] != 61,
+        decreases key.len() - i,
+    {
+        if key[i] == 0 || key[i] == 61 { return false; }
+        i += 1;
+    }
+    true
+}
 pub open spec fn hex_byte(byte: u8) -> bool {
     48 <= byte <= 57 || 97 <= byte <= 102
 }
