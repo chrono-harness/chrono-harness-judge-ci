@@ -365,6 +365,27 @@
       }
     },
     {
+      "path": ".github/landed_dependency.py",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci-tests/tests/host_installation.rs",
+            "operation": "verify.host-installation"
+          }
+        ]
+      }
+    },
+    {
       "path": ".github/roadmap.cjs",
       "owner": "host",
       "surface": "product",
@@ -399,6 +420,27 @@
       "verification": {
         "role": "data",
         "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/check-landed-dependency.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci-tests/tests/host_installation.rs",
+            "operation": "verify.host-installation"
+          }
+        ]
       }
     },
     {
