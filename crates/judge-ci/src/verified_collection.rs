@@ -72,57 +72,38 @@ pub mod pairs;
 #[cfg(not(verus_keep_ghost))]
 pub use crate::project_pairs as pairs;
 
+#[cfg(verus_keep_ghost)]
+#[path = "originals.rs"]
+pub mod original_sizes;
+#[cfg(not(verus_keep_ghost))]
+pub mod original_sizes {
+    pub use crate::originals::{bounded_original, original_read_cap, original_size_allowed};
+}
+pub use original_sizes::{bounded_original, original_read_cap, original_size_allowed};
+#[cfg(verus_keep_ghost)]
+#[path = "requirements.rs"]
+pub mod original_identity;
+#[cfg(not(verus_keep_ghost))]
+pub mod original_identity {
+    pub use crate::requirements::{admitted_report, profile_matches, report_path_matches};
+}
+pub use original_identity::{admitted_report, profile_matches, report_path_matches};
+#[cfg(verus_keep_ghost)]
+#[path = "full_registration.rs"]
+pub mod registration_reply;
+#[cfg(not(verus_keep_ghost))]
+pub mod registration_reply {
+    pub use crate::full_registration::projection_matches;
+}
+#[cfg(verus_keep_ghost)]
+#[path = "route_query.rs"]
+pub mod route_reply;
+#[cfg(not(verus_keep_ghost))]
+pub mod route_reply {
+    pub use crate::route_query::receipt_header;
+}
+
 verus! {
-
-/// Read one extra byte to detect growth after metadata observation.
-pub fn original_read_cap(limit: u64) -> (cap: u64)
-    ensures cap == if limit < u64::MAX { (limit + 1) as u64 } else { u64::MAX },
-{
-    if limit == u64::MAX { limit } else { limit + 1 }
-}
-
-pub fn original_size_allowed(length: u64, limit: u64) -> (allowed: bool)
-    ensures allowed == (length <= limit),
-{ length <= limit }
-
-/// Return the unchanged bytes, or the length actually read when the input exceeded the limit.
-pub fn bounded_original(bytes: Vec<u8>, limit: u64) -> (result: Result<Vec<u8>, usize>)
-    ensures match result {
-        Ok(data) => bytes@.len() <= limit && data@ == bytes@,
-        Err(size) => bytes@.len() > limit && size == bytes@.len(),
-    },
-{
-    let size = bytes.len();
-    if (size as u64) <= limit { Ok(bytes) } else { Err(size) }
-}
-
-/// Identifies the exact profile before its bytes can be decoded.
-pub fn profile_matches(observed: &str, declared: &str) -> (ok: bool)
-    ensures ok == (observed@ == declared@),
-{
-    equal_text(observed, declared)
-}
-
-/// The report must name the path registered for this exact unit.
-pub fn report_path_matches(registered: Option<&str>, declared: &str) -> (ok: bool)
-    ensures ok == match registered { Some(path) => path@ == declared@, None => false },
-{
-    match registered {
-        Some(path) => equal_text(path, declared),
-        None => false,
-    }
-}
-
-/// Only deliver bytes to the collector after their observed identity matches.
-pub fn admitted_report<'a>(bytes: &'a [u8], observed: &str, declared: &str)
-    -> (out: Option<&'a [u8]>)
-    ensures match out {
-        Some(data) => observed@ == declared@ && data == bytes,
-        None => observed@ != declared@,
-    },
-{
-    if equal_text(observed, declared) { Some(bytes) } else { None }
-}
 
 /// Preserve the receipt and forward its original stdout only when a passed
 /// operation declares compiler output. Other present receipts carry no stdout.

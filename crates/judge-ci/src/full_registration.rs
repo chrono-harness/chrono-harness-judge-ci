@@ -1,19 +1,26 @@
 //! Collect only the original reports requested by registration's historical conversion.
+#[cfg(not(verus_keep_ghost))]
 use crate::originals::FullManifest;
+#[cfg(not(verus_keep_ghost))]
 use crate::scheduling_git::Reader;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     FullPlanning,
     impact_query::Query,
     source_observations::{self, GitEvidence},
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
 };
 
 /// Coordinates consumed locally after the installed runner verifies the complete original.
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(super) struct Coordinates {
     pub request_id: String,
@@ -23,11 +30,13 @@ pub(super) struct Coordinates {
     pub candidate: Endpoint,
     pub runner: Executable,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(super) struct Endpoint {
     pub commit: String,
     pub root: PathBuf,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(super) struct Executable {
     pub path: String,
@@ -35,6 +44,7 @@ pub(super) struct Executable {
     pub version: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Reply {
@@ -45,6 +55,7 @@ struct Reply {
     outcome: Outcome,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Outcome {
@@ -53,6 +64,7 @@ enum Outcome {
     Error(String),
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn collection(
     request: &Coordinates,
     original: &Value,
@@ -77,10 +89,14 @@ pub(super) fn collection(
     let mut message = json!({"operation":{"mode":"ci-collection","request":original,"migration":null},"originals":documents});
     let mut read_projection = |message: &Value| -> Result<Outcome, String> {
         let reply: Reply = query.read("chrono-judge-registration", "impact-views-v1", message)?;
-        if reply.request_id != request.request_id
-            || reply.commits[0] != request.base.commit
-            || reply.commits[1] != request.candidate.commit
-        {
+        if !projection_matches(
+            (
+                &request.request_id,
+                &request.base.commit,
+                &request.candidate.commit,
+            ),
+            (&reply.request_id, &reply.commits[0], &reply.commits[1]),
+        ) {
             return Err(
                 "E_PLAN_BINDING: registration returned different collection coordinates".into(),
             );
@@ -103,4 +119,19 @@ pub(super) fn collection(
         Outcome::Error(error) => Err(error),
         Outcome::Needed(_) => Err("E_COLLECTION_INPUT: repeated migration request".into()),
     }
+}
+
+#[cfg(verus_keep_ghost)]
+use super::verified_text::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_collection::verified_text::equal_text;
+use vstd::prelude::*;
+
+verus! {
+/// Bind the registration projection to this exact collection and both commits.
+pub fn projection_matches(expected: (&str, &str, &str), actual: (&str, &str, &str)) -> (bound: bool)
+    ensures bound == (expected.0@ == actual.0@ && expected.1@ == actual.1@ && expected.2@ == actual.2@),
+{
+    equal_text(expected.0, actual.0) && equal_text(expected.1, actual.1) && equal_text(expected.2, actual.2)
+}
 }
