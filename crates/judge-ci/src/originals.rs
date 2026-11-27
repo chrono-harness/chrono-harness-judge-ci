@@ -1,9 +1,14 @@
 //! Published references and bounded original data used by CI collection.
+#[cfg(not(verus_keep_ghost))]
 use crate::{runtime_session::Session, storage::Storage, wire::Scope};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{fs, io::Read, path::Path};
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Original {
@@ -11,6 +16,7 @@ pub struct Original {
     pub sha256: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactTransport {
@@ -18,6 +24,7 @@ pub struct ArtifactTransport {
     pub directory: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportReference {
@@ -25,6 +32,7 @@ pub struct ReportReference {
     pub original: Original,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
@@ -32,6 +40,7 @@ pub struct Manifest {
     pub reports: Vec<ReportInput>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportInput {
@@ -43,6 +52,7 @@ pub struct ReportInput {
     pub artifacts: Option<ArtifactTransport>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullManifest {
@@ -50,6 +60,7 @@ pub struct FullManifest {
     pub reports: Vec<FullReportInput>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullReportInput {
@@ -64,6 +75,7 @@ pub struct FullReportInput {
     pub artifacts: Option<ArtifactTransport>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreparedCheck {
@@ -80,6 +92,7 @@ pub struct PreparedCheck {
     pub originals: Vec<Original>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Context {
@@ -89,6 +102,7 @@ pub struct Context {
     pub semantic_digest: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn original_path(
     root: &Path,
     original: &Original,
@@ -98,25 +112,27 @@ pub(super) fn original_path(
         .call(json!({"operation":"resolve-original","original":original,"transport":transport}))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn read_bounded(root: &Path, path: &str, limit: u64) -> Result<Vec<u8>, String> {
     crate::units::artifact_path(path)?;
     let storage = Storage::open(root)?;
     storage.call::<()>(json!({"operation":"retain-read","path":path}))?;
     let full: std::path::PathBuf = storage.call(json!({"operation":"checked-path","path":path}))?;
     let meta = fs::symlink_metadata(&full).map_err(|e| e.to_string())?;
-    if !meta.is_file() || !crate::verified_collection::original_size_allowed(meta.len(), limit) {
+    if !meta.is_file() || !original_size_allowed(meta.len(), limit) {
         return Err(format!("bounded collection input rejected: {path}"));
     }
     let mut bytes = Vec::new();
     fs::File::open(full)
         .map_err(|e| e.to_string())?
-        .take(crate::verified_collection::original_read_cap(limit))
+        .take(original_read_cap(limit))
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    crate::verified_collection::bounded_original(bytes, limit)
+    bounded_original(bytes, limit)
         .map_err(|_| format!("bounded collection input exceeds limit: {path}"))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn with_originals<T: DeserializeOwned>(
     root: &Path,
     operation: Value,
@@ -127,4 +143,31 @@ pub(super) fn with_originals<T: DeserializeOwned>(
     let result = session.originals(&operation, &mut read);
     let closed = session.close();
     result.and_then(|value| closed.map(|()| value))
+}
+
+use vstd::prelude::*;
+
+verus! {
+/// Read one extra byte to detect growth after metadata observation.
+pub fn original_read_cap(limit: u64) -> (cap: u64)
+    ensures cap == if limit < u64::MAX { (limit + 1) as u64 } else { u64::MAX },
+{
+    if limit == u64::MAX { limit } else { limit + 1 }
+}
+
+pub fn original_size_allowed(length: u64, limit: u64) -> (allowed: bool)
+    ensures allowed == (length <= limit),
+{ length <= limit }
+
+/// Return the unchanged bytes, or the length actually read when the input exceeded the limit.
+pub fn bounded_original(bytes: Vec<u8>, limit: u64) -> (result: Result<Vec<u8>, usize>)
+    ensures match result {
+        Ok(data) => bytes@.len() <= limit && data@ == bytes@,
+        Err(size) => bytes@.len() > limit && size == bytes@.len(),
+    },
+{
+    let size = bytes.len();
+    if (size as u64) <= limit { Ok(bytes) } else { Err(size) }
+}
+
 }

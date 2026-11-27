@@ -1,16 +1,24 @@
 //! Read scoped operation declarations and tool observations from the host's routes release.
+#[cfg(not(verus_keep_ghost))]
 use super::route_wire::{Execution, Operation, Receipt};
+#[cfg(not(verus_keep_ghost))]
 use crate::Snapshot;
+#[cfg(not(verus_keep_ghost))]
 use crate::route_wire::Tool;
+#[cfg(not(verus_keep_ghost))]
 use crate::route_wire::{Method, Plan};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     process::Stdio,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Serialize)]
 pub(super) struct Graph<'a> {
     pub selected: &'a BTreeSet<String>,
@@ -19,6 +27,7 @@ pub(super) struct Graph<'a> {
     pub execute: &'a BTreeMap<String, String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Ordered {
@@ -26,6 +35,7 @@ pub(super) struct Ordered {
     pub operations: Vec<Operation>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct FullOperations {
@@ -36,6 +46,7 @@ pub(super) struct FullOperations {
 }
 
 /// Schedule and collect against the same interpreted endpoint, including retired bindings.
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn full_operations(
     root: &Path,
     query: &crate::impact_query::Query<'_>,
@@ -74,6 +85,7 @@ pub(super) fn full_operations(
     Ok(response)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn installed(
     root: &Path,
     tools: &BTreeMap<String, Value>,
@@ -89,6 +101,7 @@ pub(super) fn installed(
     crate::files::resolve_program(root, program, None)
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Graph<'_> {
     pub fn ordered(
         &self,
@@ -142,12 +155,14 @@ impl Graph<'_> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PlanIdentity {
     plan: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn check_scoped_plan(
     root: &Path,
     program: &Path,
@@ -167,6 +182,7 @@ pub(super) fn check_scoped_plan(
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReceiptChecks {
@@ -175,6 +191,7 @@ struct ReceiptChecks {
 }
 
 /// One replay for all receipts. The caller still reports the first error in plan order.
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn check_receipts(
     root: &Path,
     program: &Path,
@@ -192,18 +209,22 @@ pub(super) fn check_receipts(
         "check-plan-receipts-v1",
         &Replay { plan, receipts },
     )?;
-    if reply.plan != plan.identity
-        || reply.operations.len() != plan.operations.len()
-        || !plan
-            .operations
-            .iter()
-            .all(|op| reply.operations.contains_key(&op.method.operation))
+    if !receipt_header(
+        &plan.identity,
+        &reply.plan,
+        plan.operations.len(),
+        reply.operations.len(),
+    ) || !plan
+        .operations
+        .iter()
+        .all(|op| reply.operations.contains_key(&op.method.operation))
     {
         return Err("E_PLAN_BINDING: routes returned different receipt operations".into());
     }
     Ok(reply.operations)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn read<T: serde::de::DeserializeOwned>(
     root: &Path,
     program: &Path,
@@ -246,6 +267,7 @@ fn read<T: serde::de::DeserializeOwned>(
     crate::codec::decode(&output.stdout)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Serialize)]
 pub(super) struct SourceEndpoint<'a> {
     pub commit: &'a str,
@@ -254,6 +276,7 @@ pub(super) struct SourceEndpoint<'a> {
     pub artifacts: Vec<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl<'a> SourceEndpoint<'a> {
     pub fn scoped(commit: &'a str, snapshot: &'a Snapshot) -> Self {
         Self {
@@ -286,6 +309,7 @@ impl<'a> SourceEndpoint<'a> {
 
 /// The route planner owns proof admission. Keep its real Git observations in the
 /// same sequence as the caller's facts, and accept them only for the same binding.
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn source_plan(
     query: &crate::impact_query::Query<'_>,
     program: &str,
@@ -315,4 +339,19 @@ pub(super) fn source_plan(
         offset,
         reply,
     )
+}
+
+#[cfg(verus_keep_ghost)]
+use super::verified_text::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_collection::verified_text::equal_text;
+use vstd::prelude::*;
+
+verus! {
+/// Each replay must name the requested plan and have the same number of operation keys.
+pub fn receipt_header(expected: &str, actual: &str, planned: usize, returned: usize) -> (bound: bool)
+    ensures bound == (expected@ == actual@ && planned == returned),
+{
+    equal_text(expected, actual) && planned == returned
+}
 }

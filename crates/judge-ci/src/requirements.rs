@@ -1,5 +1,7 @@
 //! JSON interface used by native CI providers in the checked host.
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     originals::{
         ArtifactTransport, FullManifest, FullReportInput, Original, original_path, read_bounded,
@@ -7,6 +9,7 @@ use crate::{
     wire::{Scope, Unit},
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum Query {
@@ -44,6 +47,7 @@ enum Query {
     },
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
     match decode::<Query>(input)? {
         Query::Schedule {
@@ -134,14 +138,14 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
         } => {
             let raw = fs::read(crate::files::no_symlink_parents(root, &profile)?)
                 .map_err(|e| e.to_string())?;
-            if !verified_collection::profile_matches(&sha256(&raw), &profile_sha256) {
+            if !profile_matches(&sha256(&raw), &profile_sha256) {
                 return Err("collection check profile changed".into());
             }
             let config: CheckConfig = decode(&raw)?;
             let registered: BTreeMap<String, Unit> =
                 serde_json::from_value(config.policy["units"].clone())
                     .map_err(|e| e.to_string())?;
-            if !verified_collection::report_path_matches(
+            if !report_path_matches(
                 registered.get(&unit).map(|u| u.report_path.as_str()),
                 &report.path,
             ) {
@@ -163,11 +167,47 @@ pub fn query(root: &Path, input: &[u8]) -> Result<Value, String> {
                 )
             };
             let bytes = mapped(&report, limit.report_bytes)?;
-            let accepted =
-                verified_collection::admitted_report(&bytes, &sha256(&bytes), &report.sha256)
-                    .ok_or_else(|| format!("unit {unit} report digest mismatch"))?;
+            let accepted = admitted_report(&bytes, &sha256(&bytes), &report.sha256)
+                .ok_or_else(|| format!("unit {unit} report digest mismatch"))?;
             unit_originals(root, &config, &unit, accepted, Some(&transport), mapped)?;
             Ok(object!({"unit":unit,"report_sha256":report.sha256}))
         }
     }
+}
+
+#[cfg(verus_keep_ghost)]
+use super::verified_text::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_collection::verified_text::equal_text;
+use vstd::prelude::*;
+
+verus! {
+/// Identifies the exact profile before its bytes can be decoded.
+pub fn profile_matches(observed: &str, declared: &str) -> (ok: bool)
+    ensures ok == (observed@ == declared@),
+{
+    equal_text(observed, declared)
+}
+
+/// The report must name the path registered for this exact unit.
+pub fn report_path_matches(registered: Option<&str>, declared: &str) -> (ok: bool)
+    ensures ok == match registered { Some(path) => path@ == declared@, None => false },
+{
+    match registered {
+        Some(path) => equal_text(path, declared),
+        None => false,
+    }
+}
+
+/// Only deliver bytes to the collector after their observed identity matches.
+pub fn admitted_report<'a>(bytes: &'a [u8], observed: &str, declared: &str)
+    -> (out: Option<&'a [u8]>)
+    ensures match out {
+        Some(data) => observed@ == declared@ && data == bytes,
+        None => observed@ != declared@,
+    },
+{
+    if equal_text(observed, declared) { Some(bytes) } else { None }
+}
+
 }

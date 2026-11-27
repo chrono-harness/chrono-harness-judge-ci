@@ -13,6 +13,26 @@ use vstd::prelude::*;
 
 verus! {
 
+fn original_coordinates_and_receipt_counts(id: &str, base: &str, head: &str, count: usize) {
+    use policy::registration_reply::projection_matches;
+    use policy::route_reply::receipt_header;
+    expect(projection_matches((id, base, head), (id, base, head)));
+    let swapped = projection_matches((id, base, head), (id, head, base));
+    let equal = policy::verified_text::equal_text(base, head);
+    expect(swapped == equal);
+    expect(receipt_header(id, id, count, count));
+    if count < usize::MAX {
+        expect(!receipt_header(id, id, count, count + 1));
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn collected_reports_bind_original_endpoints_and_operation_counts() {
+    original_coordinates_and_receipt_counts("request", "before", "after", 0);
+    original_coordinates_and_receipt_counts("request", "same", "same", usize::MAX);
+}
+
+
 #[cfg(verus_keep_ghost)]
 fn original_tool_streams(exit: i32, out: Vec<u8>, err: Vec<u8>) {
     use policy::pairs::{PairFailure, pair_response};

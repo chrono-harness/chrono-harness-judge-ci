@@ -909,7 +909,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/impact_query.rs",
@@ -1008,7 +1021,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/project_execution.rs",
@@ -1070,7 +1096,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/result_types.rs",
@@ -1107,7 +1146,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/route_wire.rs",
