@@ -25,6 +25,20 @@ use crate::{units::SCOPED_PROTOCOL, verified_collection::verified_text::equal_te
 use vstd::prelude::*;
 
 verus! {
+/// Choose the collector's validation contract from the actual preparation and report label.
+pub fn identity_environment(label: Option<&str>, prepared: bool) -> (mode: Option<bool>)
+    ensures mode == match label {
+        None => Some(false),
+        Some(value) => if !prepared && value@ == "sha256"@ { Some(true) } else { None },
+    },
+{
+    match label {
+        None => Some(false),
+        Some(value) if !prepared && equal_text(value,"sha256") => Some(true),
+        Some(_) => None,
+    }
+}
+
 /// Bind the original reply to the expected scoped protocol, request and evidence.
 pub fn response_header(protocol: &str, reported: &str, expected: &str, count: usize, evidence: bool)
     -> (valid: bool)
@@ -124,13 +138,14 @@ fn digest(s: &str) -> bool {
 }
 
 #[cfg(not(verus_keep_ghost))]
-fn process(p: &ProcessResult) -> Result<(), String> {
+fn process(p: &ProcessResult, environment_matches: bool) -> Result<(), String> {
     if !digest(&p.sha256)
         || p.stdout_sha256 != sha256(&p.stdout_bytes)
         || p.stderr_sha256 != sha256(&p.stderr_bytes)
         || p.stdout != String::from_utf8_lossy(&p.stdout_bytes)
         || p.stderr != String::from_utf8_lossy(&p.stderr_bytes)
-        || p.environment_digest != crate::codec::digest(&p.environment)?
+        || !digest(&p.environment_digest)
+        || !environment_matches
     {
         return Err("unit original process bytes or identity mismatch".into());
     }
@@ -145,6 +160,78 @@ pub struct UnitOriginals {
     pub request: Request,
     pub producer: ProcessResult,
     pub retained_report_path: Option<String>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl UnitOriginals {
+    /// Verify the recorded command and its represented environment on the
+    /// producer's host, including a bare program selected from its search path.
+    pub fn validate_producer(&self, config: &CheckConfig) -> Result<(), String> {
+        let producer = &self.producer;
+        let original = &self.request;
+        let wire = &self.report["judge"];
+        let program = &config.judge.program;
+        let prepared = original.observations["preparation"].is_object();
+        let label = wire
+            .get("environment_representation")
+            .map(|value| {
+                value
+                    .as_str()
+                    .ok_or("unit environment representation must be a string")
+            })
+            .transpose()?;
+        let path_matches = match identity_environment(label, prepared) {
+            Some(false) => {
+                if wire.get("unit_environment_digest").is_some()
+                    || wire.get("program_candidates_sha256").is_some()
+                {
+                    return Err("unit environment representation missing".into());
+                }
+                process(
+                    producer,
+                    producer.environment_digest == crate::codec::digest(&producer.environment)?,
+                )?;
+                let search = producer
+                    .environment
+                    .get("PATH")
+                    .map(String::as_str)
+                    .unwrap_or("");
+                crate::files::program_candidates(&original.host_root, program, Some(search))?
+                    .contains(&producer.executable)
+            }
+            Some(true) => {
+                let commitment = crate::codec::digest(&(
+                    &producer.environment_digest,
+                    &producer.environment,
+                    &wire["program_candidates_sha256"],
+                ))?;
+                process(producer, wire["unit_environment_digest"] == commitment)?;
+                if !producer.environment.values().all(|value| digest(value)) {
+                    return Err("invalid unit environment identity".into());
+                }
+                if program.contains('/') {
+                    wire.get("program_candidates_sha256").is_none()
+                        && producer.executable == original.host_root.join(program)
+                } else {
+                    let candidates: Vec<String> =
+                        serde_json::from_value(wire["program_candidates_sha256"].clone())
+                            .map_err(|_| "unit program candidate identities missing")?;
+                    producer.environment.contains_key("PATH")
+                        && producer.executable.is_absolute()
+                        && producer.executable.file_name() == Some(std::ffi::OsStr::new(program))
+                        && candidates.iter().all(|value| digest(value))
+                        && candidates.contains(&crate::codec::digest(&producer.executable)?)
+                }
+            }
+            None => return Err("unsupported unit environment representation".into()),
+        };
+        let expected_argv = std::iter::once(producer.executable.to_string_lossy().into_owned())
+            .chain(config.judge.args.iter().cloned());
+        if !path_matches || !expected_argv.eq(producer.argv.iter().cloned()) {
+            return Err("unit judge command differs from profile".into());
+        }
+        Ok(())
+    }
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -393,6 +480,7 @@ fn collect_checked(
                 )
             },
         )?;
+        originals.validate_producer(config)?;
         retained_originals.extend(originals.retained_report_path);
         let report = originals.report;
         let original = originals.request;
@@ -412,7 +500,6 @@ fn collect_checked(
                 return Err("original preparation differs from collected unit".into());
             }
         }
-        process(&producer)?;
         let decoded = json(&producer.stdout_bytes)?;
         let response_value = if retained_streams {
             &decoded
@@ -442,24 +529,6 @@ fn collect_checked(
                 "unit endpoints/config/scope/executable/original response mismatch: {}",
                 input.unit
             ));
-        }
-        let candidates = crate::files::program_candidates(
-            &original.host_root,
-            &config.judge.program,
-            Some(
-                producer
-                    .environment
-                    .get("PATH")
-                    .map(String::as_str)
-                    .unwrap_or(""),
-            ),
-        )?;
-        let expected_argv: Vec<_> =
-            std::iter::once(producer.executable.to_string_lossy().into_owned())
-                .chain(config.judge.args.clone())
-                .collect();
-        if !candidates.contains(&producer.executable) || producer.argv != expected_argv {
-            return Err("unit judge command differs from profile".into());
         }
         if response.status != Status::Passed {
             let reference = format!("original report {} ({})", input.path, input.sha256);
@@ -564,7 +633,10 @@ fn collect_checked(
                 return Err("unit tool declaration missing/ambiguous".into());
             }
             let declaration = definitions[0];
-            process(&tool.version)?;
+            process(
+                &tool.version,
+                tool.version.environment_digest == crate::codec::digest(&tool.version.environment)?,
+            )?;
             let mut argv = vec![tool.path.to_string_lossy().into_owned()];
             argv.extend(strings(&declaration["version_argv"])?);
             if tool.program != declaration["program"].as_str().ok_or("tool program")?

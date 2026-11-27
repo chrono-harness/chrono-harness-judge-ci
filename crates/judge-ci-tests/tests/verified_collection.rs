@@ -93,6 +93,15 @@ fn original_tool_streams(exit: i32, out: Vec<u8>, err: Vec<u8>) {
 
 
 #[cfg(verus_keep_ghost)]
+fn unit_environment_only_accepts_the_declared_form(label: &str, prepared: bool) {
+    use policy::unit_admission::identity_environment;
+    let observed = identity_environment(Some(label), prepared);
+    let literal = identity_environment(None, prepared);
+    assert(literal == Some(false));
+    assert(observed == if label@ == "sha256"@ && !prepared { Some(true) } else { None });
+}
+
+#[cfg(verus_keep_ghost)]
 fn collection_protocol_and_row_identity(unit: String, manifest: String, row: &CheckResult) {
     use policy::unit_protocol::selected_protocol;
     use policy::unit_admission::{response_header, row_error};
@@ -999,4 +1008,80 @@ fn full_oid_accepts_only_nonzero_lower_hex_at_supported_lengths() {
         assert!(full_oid(&format!("{}F", "1".repeat(length - 1))).is_err());
         assert!(full_oid(&"a".repeat(length - 1)).is_err());
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn unit_environment_identities_verify_the_producers_program_offline() {
+    use chrono_judge_ci::{codec::digest, unit_originals};
+    use serde_json::{Value, json};
+    use std::path::Path;
+
+    let config = serde_json::from_str(include_str!("fixtures/unit-profile.json")).unwrap();
+    let root = Path::new("/producer");
+    let executable = "/producer/tools/judge";
+    let candidates = json!([
+        digest(&"/other/judge").unwrap(),
+        digest(&executable).unwrap()
+    ]);
+    let empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    let original_env = json!({"PATH": "/other:tools"});
+    let identities =
+        json!({"PATH":"9f4b30d25acc829a89a4e3f5c3ac3d06fff4223cbeb6fe9d3c6006dfacb7ec1b"});
+    let mut record = json!({
+        "argv":[executable],"cwd":root,"environment":identities,
+        "environment_digest":digest(&original_env).unwrap(),"environment_representation":"sha256",
+        "unit_environment_digest":digest(&json!([digest(&original_env).unwrap(),identities,candidates])).unwrap(),"program_candidates_sha256":candidates,
+        "stdin_sha256":empty,"stdout_bytes":[],"stderr_bytes":[],"stdout_sha256":empty,
+        "stderr_sha256":empty,"failure":null,"exit_code":0,"stdout":"","stderr":"",
+        "executable":executable,"sha256":"a".repeat(64)
+    });
+    let validate = |judge: &Value, prepared: bool| {
+        let raw = json!({"schema":"chrono-check-report/v1","judge":judge,
+            "request":{"scope":{"kind":"unit","unit":"unit-a"},"protocol":"chrono-ci-judge/v2",
+            "request_id":"unit","host_root":root,"config_path":"profile","config_sha256":"b".repeat(64),
+            "candidate":"c".repeat(40),"initial":true}});
+        let mut originals = unit_originals(
+            root,
+            &config,
+            "unit-a",
+            &serde_json::to_vec(&raw).unwrap(),
+            None,
+            |_, _| panic!("inline original"),
+        )
+        .unwrap();
+        if prepared {
+            originals.request.observations = json!({"preparation":{}});
+        }
+        originals.validate_producer(&config)
+    };
+    validate(&record, false).unwrap();
+    assert!(validate(&record, true).is_err());
+    for (field, bad_value) in [
+        ("environment_representation", json!("unknown")),
+        ("unit_environment_digest", json!("1".repeat(64))),
+        ("environment_digest", json!("2".repeat(64))),
+        (
+            "program_candidates_sha256",
+            json!([digest(&"/other/judge").unwrap()]),
+        ),
+        ("argv", json!(["/other/judge"])),
+        ("environment", json!({"PATH":"plaintext"})),
+        ("stdout", json!("different")),
+    ] {
+        let mut bad = record.clone();
+        bad[field] = bad_value;
+        assert!(validate(&bad, false).is_err(), "{field}");
+    }
+    let map = record.as_object_mut().unwrap();
+    for field in [
+        "environment_representation",
+        "unit_environment_digest",
+        "program_candidates_sha256",
+    ] {
+        map.remove(field);
+    }
+    record["environment"] = original_env;
+    validate(&record, false).unwrap();
+    validate(&record, true).unwrap();
 }
