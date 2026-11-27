@@ -37,7 +37,7 @@ filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_text.rs src/verified_collection.rs src/result_types.rs src/route_wire.rs src/project_execution.rs src/source_binding.rs src/files.rs src/collect.rs src/units.rs src/originals.rs src/verified_consumption.rs \
-  src/consumption.rs src/lib.rs src/requirements.rs src/observed.rs ||
+  src/consumption.rs src/lib.rs src/requirements.rs src/observed.rs src/impact_query.rs src/project_pairs.rs ||
   coverage_failure "native library differs from required sources"
 
 src=crates/judge-ci/src
@@ -49,9 +49,9 @@ preparation_operation=verify.ci-preparation
 preparation_tests_operation=verify.ci-preparation-tests
 
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_operation.rlib" "$src/verified_collection.rs" \
-  "$src/verified_text.rs" "$src/main.rs" "$src/result_types.rs" "$src/project_execution.rs" "$src/files.rs" "$src/source_binding.rs" "$src/route_wire.rs" "$src/collect.rs" "$src/units.rs"
+  "$src/verified_text.rs" "$src/main.rs" "$src/result_types.rs" "$src/project_execution.rs" "$src/files.rs" "$src/source_binding.rs" "$src/route_wire.rs" "$src/collect.rs" "$src/units.rs" "$src/observed.rs" "$src/impact_query.rs" "$src/project_pairs.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_tests_operation.rlib" "$tests/verified_collection.rs" \
-  "$include/verified_collection.rs" "$include/verified_text.rs" "$include/main.rs" "$include/result_types.rs" "$include/project_execution.rs" "$include/files.rs" "$include/source_binding.rs" "$include/route_wire.rs" "$include/collect.rs" "$include/units.rs" "$tests/support/expect.rs"
+  "$include/verified_collection.rs" "$include/verified_text.rs" "$include/main.rs" "$include/result_types.rs" "$include/project_execution.rs" "$include/files.rs" "$include/source_binding.rs" "$include/route_wire.rs" "$include/collect.rs" "$include/units.rs" "$include/observed.rs" "$include/impact_query.rs" "$include/project_pairs.rs" "$tests/support/expect.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_operation.rlib" "$src/verified_consumption.rs" "$src/verified_text.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_tests_operation.rlib" "$tests/verified_consumption.rs" \
   "$include/verified_consumption.rs" "$include/verified_text.rs"

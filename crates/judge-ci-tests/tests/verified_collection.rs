@@ -14,6 +14,16 @@ use vstd::prelude::*;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn original_tool_streams(exit: i32, out: Vec<u8>, err: Vec<u8>) {
+    use policy::pairs::{PairFailure, pair_response};
+    let ghost want = if exit != 0 { Err(PairFailure::Child(err)) }
+        else if out.len() == 0 { Ok(()) } else { Err(PairFailure::UnexpectedOutput) };
+    let checked = pair_response(exit, out, err);
+    assert(checked == want);
+}
+
+
+#[cfg(verus_keep_ghost)]
 fn collection_protocol_and_row_identity(unit: String, manifest: String, row: &CheckResult) {
     use policy::unit_protocol::selected_protocol;
     use policy::unit_admission::{response_header, row_error};
@@ -873,5 +883,39 @@ fn collected_rows_report_the_first_protocol_violation() {
             unit_response(&report, "host", 0).err().unwrap(),
             "empty or mismatched judge response"
         );
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn public_queries_preserve_the_selected_tool_stream() {
+    use chrono_judge_ci::{impact_query::Query, project_pairs};
+    use serde_json::{Value, json};
+    use std::collections::BTreeSet;
+    use std::path::Path;
+    let config = json!({"protocol":{"timeout_seconds":1, "stdout_limit_bytes":64}});
+    let query = Query::full(Path::new("."), &config).unwrap();
+    for (code, out, err) in [
+        (0, b"null".as_slice(), b"ignored".as_slice()),
+        (17, b"null", b"failure\n"),
+    ] {
+        let run = || Ok((code, out.to_vec(), err.to_vec()));
+        let found = query.read_with::<Value>("registered", "approach", &json!({}), |_, _| run());
+        let paired = project_pairs::check(
+            &json!({}),
+            &BTreeSet::new(),
+            None,
+            String::new(),
+            1,
+            64,
+            |_, _| run(),
+        );
+        if code == 0 {
+            assert_eq!(found.unwrap(), Value::Null);
+            assert_eq!(paired.unwrap_err(), "unexpected check-pairs-v1 response");
+        } else {
+            assert_eq!(found.unwrap_err(), "registered approach exited 17: failure");
+            assert_eq!(paired.unwrap_err(), "failure");
+        }
     }
 }

@@ -1,19 +1,27 @@
+#[cfg(not(verus_keep_ghost))]
 use crate::Policy;
+#[cfg(not(verus_keep_ghost))]
 use crate::observed::CommandSpec;
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Edge {
     pub from: String,
     pub kind: String,
     pub to: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Finding {
@@ -24,6 +32,7 @@ pub(crate) struct Finding {
     causes: Vec<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Reachability {
@@ -33,6 +42,7 @@ pub(crate) struct Reachability {
     pub closure: Option<Value>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Obligations {
@@ -44,6 +54,7 @@ pub(crate) struct Obligations {
     pub git_facts: Value,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Obligations {
     pub fn require_valid(&self, error: &str) -> Result<(), String> {
         if self.findings.iter().any(|f| f.level == "error") {
@@ -56,6 +67,7 @@ impl Obligations {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub struct Query<'a> {
     root: &'a Path,
     timeout: u64,
@@ -63,6 +75,7 @@ pub struct Query<'a> {
     env: BTreeMap<String, String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl<'a> Query<'a> {
     pub fn scoped(root: &'a Path, policy: &Policy) -> Result<Self, String> {
         Ok(Self {
@@ -135,18 +148,17 @@ impl<'a> Query<'a> {
         };
         let input = serde_json::to_vec(request).map_err(|e| e.to_string())?;
         let (exit, stdout, stderr) = invoke(command, &input)?;
-        if exit != 0 {
-            let cause = String::from_utf8(stderr).map_err(|e| e.to_string())?;
-            return Err(format!(
-                "{program} {operation} exited {}: {}",
-                exit,
-                cause.trim_end()
-            ));
-        }
+        let stdout = query_stream(exit, stdout, stderr).map_err(|stderr| {
+            String::from_utf8(stderr).map_or_else(
+                |error| error.to_string(),
+                |cause| format!("{program} {operation} exited {exit}: {}", cause.trim_end()),
+            )
+        })?;
         crate::codec::decode(&stdout)
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn search_path() -> Result<BTreeMap<String, String>, String> {
     Ok(BTreeMap::from([(
         "PATH".into(),
@@ -154,6 +166,7 @@ fn search_path() -> Result<BTreeMap<String, String>, String> {
     )]))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn run_bound(
     root: &Path,
     mut command: CommandSpec,
@@ -175,4 +188,15 @@ pub(crate) fn run_bound(
         return Err(failure);
     }
     Ok((output.exit_code, output.stdout_bytes, output.stderr_bytes))
+}
+
+use vstd::prelude::*;
+verus! {
+/// Only the successful child produces the stdout which may be decoded.
+pub fn query_stream(exit: i32, stdout: Vec<u8>, stderr: Vec<u8>)
+    -> (reply: Result<Vec<u8>, Vec<u8>>)
+    ensures reply == if exit == 0 { Ok(stdout) } else { Err(stderr) },
+{
+    if exit == 0 { Ok(stdout) } else { Err(stderr) }
+}
 }
