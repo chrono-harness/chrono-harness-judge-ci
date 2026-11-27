@@ -704,7 +704,16 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci-tests/tests/support/expect.rs",
@@ -823,7 +832,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/collect.rs",
@@ -872,7 +894,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/files.rs",
@@ -1196,7 +1231,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/runtime_session/originals.rs",
@@ -1208,7 +1256,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/scheduling_git.rs",
@@ -1220,7 +1281,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/source_binding.rs",
@@ -1269,7 +1343,20 @@
           "kind": "test-execution",
           "to": "test:judge-ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-ci/src/verified_collection.rs",
+            "operation": "verify.ci-collection"
+          },
+          {
+            "path": "crates/judge-ci-tests/tests/verified_collection.rs",
+            "operation": "verify.ci-collection-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-ci/src/trace_source.rs",

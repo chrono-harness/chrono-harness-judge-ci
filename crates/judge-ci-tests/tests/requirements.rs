@@ -1,6 +1,11 @@
+#[cfg(not(verus_keep_ghost))]
+use chrono_judge_ci::codec;
+#[cfg(not(verus_keep_ghost))]
 use chrono_judge_ci::requirements::query;
+#[cfg(not(verus_keep_ghost))]
 use std::path::Path;
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn scoped_query_rejects_an_outside_profile_before_reading_it() {
     let request =
@@ -12,6 +17,7 @@ fn scoped_query_rejects_an_outside_profile_before_reading_it() {
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn full_schedule_requires_a_base_and_rejects_scoped_fields() {
     for request in [
@@ -26,6 +32,7 @@ fn full_schedule_requires_a_base_and_rejects_scoped_fields() {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn collection_only_accepts_a_manifest_under_the_declared_state_root() {
     let request = br#"{"operation":"collect","profile":"profile.json","manifest":"README.md","candidate":"x","initial":true}"#;
@@ -36,6 +43,7 @@ fn collection_only_accepts_a_manifest_under_the_declared_state_root() {
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn unit_query_rejects_profile_and_unit_drift_before_reading_the_original() {
     use serde_json::json;
@@ -67,10 +75,12 @@ fn unit_query_rejects_profile_and_unit_drift_before_reading_the_original() {
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[allow(dead_code)]
 #[path = "../../judge-ci/src/scheduling_git.rs"]
 mod scheduling_git;
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn scheduling_reads_fixed_snapshots_and_preserves_the_first_git_error() {
     use serde_json::{Value, json};
@@ -129,10 +139,13 @@ fn scheduling_reads_fixed_snapshots_and_preserves_the_first_git_error() {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 use chrono_judge_ci::originals;
+#[cfg(not(verus_keep_ghost))]
 #[path = "../../judge-ci/src/runtime_session/originals.rs"]
 mod collector_reader;
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn collector_sends_raw_original_only_after_size_admission() {
     use serde_json::{Value, json};
@@ -194,4 +207,19 @@ fn collector_sends_raw_original_only_after_size_admission() {
         output,
         format!("{operation}\n{{\"Err\":\"reader error\"}}\n").as_bytes()
     );
+}
+
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+verus! {
+pub fn original_frames_accept_one_complete_line(bytes: &[u8])
+{
+    let complete = super::policy::session_frame::complete_line(bytes);
+    if bytes.len() == 0 { assert(!complete); }
+    else {
+        let terminal = bytes[bytes.len()-1];
+        assert(complete == (terminal == 10u8));
+    }
+}
 }

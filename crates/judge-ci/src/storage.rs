@@ -1,7 +1,11 @@
 //! Live capability for the CI acquisition or inventory. Commands inherit the exact retained descriptors.
+#[cfg(not(verus_keep_ghost))]
 use crate::runtime_session::Session;
+#[cfg(not(verus_keep_ghost))]
 use serde::de::DeserializeOwned;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -10,9 +14,12 @@ use std::{
     process::Command,
     rc::{Rc, Weak},
 };
+#[cfg(not(verus_keep_ghost))]
 thread_local! { static ACTIVE:RefCell<BTreeMap<(PathBuf, PathBuf),Weak<RefCell<Session>>>> = RefCell::new(BTreeMap::new()); }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone)]
 pub(crate) struct Storage(Rc<RefCell<Session>>);
+#[cfg(not(verus_keep_ghost))]
 impl Storage {
     pub fn open(root: &Path) -> Result<Self, String> {
         let program = crate::observed::installed(root)?;
@@ -38,13 +45,12 @@ impl Storage {
     ) -> Result<T, String> {
         let storage = Self::open(root)?;
         let result = use_storage();
-        match (result, storage.close()) {
-            (Err(error), Err(close)) => {
-                Err(format!("{error}; closing retained originals: {close}"))
+        close_result(result, storage.close()).map_err(|failure| match failure {
+            CloseFailure::Both(error, close) => {
+                format!("{error}; closing retained originals: {close}")
             }
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            (Ok(value), Ok(())) => Ok(value),
-        }
+            CloseFailure::Single(error) => error,
+        })
     }
     pub fn close(self) -> Result<(), String> {
         match Rc::try_unwrap(self.0) {
@@ -56,6 +62,7 @@ impl Storage {
         self.0.borrow_mut().call(op)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn command(runner: &Path, program: &Path) -> Result<Command, String> {
     let mut descriptors = Vec::new();
     ACTIVE.with(|all| -> Result<(), String> {
@@ -92,6 +99,7 @@ pub(crate) fn command(runner: &Path, program: &Path) -> Result<Command, String> 
     Ok(command)
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Session {
     fn append_descriptors(&mut self, result: &mut Vec<OwnedFd>) -> Result<(), String> {
         use rustix::net::{
@@ -144,4 +152,23 @@ impl Session {
             offset += n;
         }
     }
+}
+
+use vstd::prelude::*;
+verus! {
+pub enum CloseFailure<E> { Single(E), Both(E,E) }
+
+pub fn close_result<T,E>(work: Result<T,E>, close: Result<(),E>) -> (result: Result<T,CloseFailure<E>>)
+    ensures result == match (work,close) {
+        (Err(first),Err(last)) => Err(CloseFailure::Both(first,last)),
+        (Err(error),_) | (_,Err(error)) => Err(CloseFailure::Single(error)),
+        (Ok(value),Ok(())) => Ok(value),
+    },
+{
+    match (work,close) {
+        (Err(first),Err(last)) => Err(CloseFailure::Both(first,last)),
+        (Err(error),_) | (_,Err(error)) => Err(CloseFailure::Single(error)),
+        (Ok(value),Ok(())) => Ok(value),
+    }
+}
 }

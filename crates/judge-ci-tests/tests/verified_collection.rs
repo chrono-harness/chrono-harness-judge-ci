@@ -11,7 +11,35 @@ mod expectation;
 use expectation::expect;
 use vstd::prelude::*;
 
+#[cfg(verus_keep_ghost)]
+#[path = "requirements.rs"]
+mod native_requirements;
+
 verus! {
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn session_frames_and_terminal_failures_stay_bound() {
+    use policy::{diagnostic_status::terminal_matches, git_terminal::terminal_error, original_ack::admitted_bytes,
+        retained_session::{close_result,CloseFailure}, session_frame::complete_line, session_result::finish_reply};
+    expect(!complete_line(&[123u8,125u8]));
+    expect(complete_line(&[123u8,125u8,10u8]));
+    expect(!complete_line(&[]));
+    expect(terminal_matches(Some(2),Some(2),0));
+    expect(!terminal_matches(None,None,0));
+    expect(!terminal_matches(Some(0),Some(0),1));
+    expect(terminal_error(true,true,true).is_some());
+    expect(terminal_error(false,true,true).is_some());
+    expect(matches!(admitted_bytes(Ok::<u8,u8>(9),Ok(false)), Err(None)));
+    expect(matches!(admitted_bytes(Err::<u8,u8>(1),Err(3)), Err(Some(3u8))));
+    expect(matches!(admitted_bytes(Ok::<u8,u8>(9),Ok(true)), Ok(9u8)));
+    expect(matches!(finish_reply(Err::<u8,u8>(1),Err(2)), Err(1u8)));
+    expect(matches!(finish_reply(Ok::<u8,u8>(1),Err(2)), Err(2u8)));
+    match close_result::<u8,u8>(Err(1),Err(2)) {
+        Err(CloseFailure::Both(a,b)) => expect(a==1 && b==2),
+        _ => expect(false),
+    }
+}
+
 
 fn original_coordinates_and_receipt_counts(id: &str, base: &str, head: &str, count: usize) {
     use policy::registration_reply::projection_matches;

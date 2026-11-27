@@ -1,7 +1,11 @@
 //! Stream events to the installed diagnostics command while the check owns its output sink.
+#[cfg(not(verus_keep_ghost))]
 use crate::trace_source::Source;
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     io::{self, BufRead, BufReader, BufWriter, Write},
     path::Path,
@@ -9,6 +13,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Reply {
@@ -19,6 +24,7 @@ enum Reply {
     Finished(Vec<Value>),
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn failure(code: &str, message: impl Into<String>) -> Value {
     json!({"schema":"chrono-error/v1", "error":{
         "type":"chrono_judge_ci::diagnostic_session", "code":code,
@@ -26,12 +32,14 @@ pub(super) fn failure(code: &str, message: impl Into<String>) -> Value {
     }})
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct Channel<I, O, W> {
     input: I,
     output: O,
     sink: W,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl<I: Write, O: BufRead, W: Write> Channel<I, O, W> {
     fn send(&mut self, value: impl Serialize) -> io::Result<()> {
         serde_json::to_writer(&mut self.input, &value)?;
@@ -43,7 +51,8 @@ impl<I: Write, O: BufRead, W: Write> Channel<I, O, W> {
         let mut line = String::new();
         loop {
             line.clear();
-            if self.output.read_line(&mut line)? == 0 {
+            self.output.read_line(&mut line)?;
+            if !crate::codec::complete_line(line.as_bytes()) {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "diagnostics closed stdout before its reply",
@@ -65,6 +74,7 @@ impl<I: Write, O: BufRead, W: Write> Channel<I, O, W> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn run<T>(
     root: &Path,
     program: &str,
@@ -106,9 +116,7 @@ pub(super) fn run<T>(
             evaluation.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
         match (status, diagnostic) {
             (Ok(status), Ok(text))
-                if status.code() == expected_status
-                    && text.is_empty()
-                    && expected_status.is_some() =>
+                if terminal_matches(expected_status, status.code(), text.len()) =>
             {
                 ()
             }
@@ -121,6 +129,7 @@ pub(super) fn run<T>(
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn session<I, O, W, T>(
     mut channel: Channel<I, O, W>,
     errors: &mut Vec<Value>,
@@ -194,6 +203,7 @@ where
 }
 
 /// Forward lifecycle and trace events to the diagnostics executable selected by the host.
+#[cfg(not(verus_keep_ghost))]
 pub fn cli(run: impl FnOnce() -> u8) -> u8 {
     fn logged(root: &Path, run: impl FnOnce() -> u8) -> Result<u8, String> {
         match std::fs::symlink_metadata(root.join(".chrono-harness/logging.json")) {
@@ -234,6 +244,12 @@ pub fn cli(run: impl FnOnce() -> u8) -> u8 {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> io::Result<u8> {
                 let mut ready = String::new();
                 response.read_line(&mut ready)?;
+                if !crate::codec::complete_line(ready.as_bytes()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "incomplete diagnostics ready reply",
+                    ));
+                }
                 if serde_json::from_str::<Value>(&ready)? != json!({"ready":true}) {
                     return Err(io::Error::other("invalid diagnostics ready reply"));
                 }
@@ -272,8 +288,10 @@ pub fn cli(run: impl FnOnce() -> u8) -> u8 {
 }
 
 /// Preserve native stderr write errors from the configured diagnostic sink.
+#[cfg(not(verus_keep_ghost))]
 #[cfg(unix)]
 pub(super) struct Stderr;
+#[cfg(not(verus_keep_ghost))]
 #[cfg(unix)]
 impl Write for Stderr {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -282,4 +300,13 @@ impl Write for Stderr {
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
+}
+
+use vstd::prelude::*;
+verus! {
+pub fn terminal_matches(expected: Option<i32>, actual: Option<i32>, stderr_len: usize) -> (valid: bool)
+    ensures valid == (expected.is_some() && actual == expected && stderr_len == 0),
+{
+    expected.is_some() && actual == expected && stderr_len == 0
+}
 }
