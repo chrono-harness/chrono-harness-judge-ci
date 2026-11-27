@@ -12,6 +12,16 @@ use expectation::expect;
 use vstd::prelude::*;
 
 verus! {
+
+#[cfg(verus_keep_ghost)]
+fn exact_timeout_edges() {
+    let before = policy::timeout_bounds::decimal_timeout(9007199254740991);
+    let boundary = policy::timeout_bounds::decimal_timeout(9007199254740992);
+    let next = policy::timeout_bounds::decimal_timeout(9007199254740993);
+    let last = policy::timeout_bounds::decimal_timeout(u64::MAX);
+    assert(!before && boundary && next && last);
+}
+
 /// The last representable byte succeeds; counting one more must fail.
 fn observed_file_length_boundaries(previous: u64) {
     let remaining = u64::MAX - previous;
