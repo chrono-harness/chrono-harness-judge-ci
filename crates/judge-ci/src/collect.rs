@@ -1,40 +1,78 @@
 //! Offline verification of explicit unit reports. Business operations are never executed here.
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::route_wire::Method;
+#[cfg(not(verus_keep_ghost))]
 use crate::route_wire::{Execution, Receipt};
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     originals::{self, ArtifactTransport, Manifest, Original, PreparedCheck, ReportReference},
     route_wire::ProcessResult,
     wire::Scope,
 };
+#[cfg(not(verus_keep_ghost))]
 use std::io::Read;
 
+#[cfg(verus_keep_ghost)]
+use super::{
+    result_types::{CheckResult, Status},
+    unit_protocol::SCOPED_PROTOCOL,
+    verified_text::equal_text,
+};
+#[cfg(not(verus_keep_ghost))]
+use crate::{units::SCOPED_PROTOCOL, verified_collection::verified_text::equal_text};
+use vstd::prelude::*;
+
+verus! {
+/// Bind the original reply to the expected scoped protocol, request and evidence.
+pub fn response_header(protocol: &str, reported: &str, expected: &str, count: usize, evidence: bool)
+    -> (valid: bool)
+    ensures valid == (protocol@ == "chrono-ci-judge/v2"@ && reported@ == expected@ && count > 0 && evidence),
+{
+    equal_text(protocol, SCOPED_PROTOCOL) && equal_text(reported, expected) && count > 0 && evidence
+}
+
+/// The set insertion is performed once by the reader, in original row order.
+pub fn row_error(row: &CheckResult, new_id: bool) -> (error: Option<&'static str>)
+    ensures error == if row.id@ == ""@ || row.cause@ == ""@ || !new_id {
+        Some("invalid/duplicate judge result")
+    } else { match (row.status, row.exit_code) {
+        (Status::Passed, Some(code)) if code != 0 => Some("passed result has failing exit"),
+        (Status::Failed, Some(0)) => Some("failed result has successful exit"),
+        (Status::NotRequired, Some(_)) => Some("not-required result must have null exit_code"),
+        _ => None,
+    } },
+{
+    if !new_id || equal_text(row.id.as_str(), "") || equal_text(row.cause.as_str(), "") {
+        return Some("invalid/duplicate judge result");
+    }
+    match (row.status, row.exit_code) {
+        (Status::Passed, Some(code)) if code != 0 => Some("passed result has failing exit"),
+        (Status::Failed, Some(0)) => Some("failed result has successful exit"),
+        (Status::NotRequired, Some(_)) => Some("not-required result must have null exit_code"),
+        _ => None,
+    }
+}
+}
+
 /// Decode the response recorded by a unit and bind it to the request and process exit.
+#[cfg(not(verus_keep_ghost))]
 pub fn unit_response(value: &Value, request_id: &str, exit: i32) -> Result<Response, String> {
     let response = Response::deserialize(value).map_err(|error| error.to_string())?;
-    if response.protocol != "chrono-ci-judge/v2"
-        || response.request_id != request_id
-        || response.results.is_empty()
-        || response.evidence.as_object().is_none_or(|e| e.is_empty())
-    {
+    if !response_header(
+        &response.protocol,
+        &response.request_id,
+        request_id,
+        response.results.len(),
+        response.evidence.as_object().is_some_and(|e| !e.is_empty()),
+    ) {
         return Err("empty or mismatched judge response".into());
     }
     let mut ids = BTreeSet::new();
     for row in &response.results {
-        if row.id.is_empty() || row.cause.is_empty() || !ids.insert(&row.id) {
-            return Err("invalid/duplicate judge result".into());
-        }
-        match row.status {
-            Status::Passed if row.exit_code.is_some_and(|exit| exit != 0) => {
-                return Err("passed result has failing exit".into());
-            }
-            Status::Failed if row.exit_code == Some(0) => {
-                return Err("failed result has successful exit".into());
-            }
-            Status::NotRequired if row.exit_code.is_some() => {
-                return Err("not-required result must have null exit_code".into());
-            }
-            _ => (),
+        if let Some(error) = row_error(row, ids.insert(&row.id)) {
+            return Err(error.into());
         }
     }
     if !verified_collection::unit_outcome_matches(&response.results, response.status, exit) {
@@ -43,6 +81,7 @@ pub fn unit_response(value: &Value, request_id: &str, exit: i32) -> Result<Respo
     Ok(response)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn read(
     root: &Path,
     path: &str,
@@ -77,12 +116,14 @@ fn read(
     verified_collection::bounded_original(bytes, limit).map_err(|size| overflow(size as u64))
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn digest(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn process(p: &ProcessResult) -> Result<(), String> {
     if !digest(&p.sha256)
         || p.stdout_sha256 != sha256(&p.stdout_bytes)
@@ -98,6 +139,7 @@ fn process(p: &ProcessResult) -> Result<(), String> {
 
 /// Typed report/preparation/receipt/stream acquisition shared by native gather
 /// and the canonical collector. Supplying these bytes is not report acceptance.
+#[cfg(not(verus_keep_ghost))]
 pub struct UnitOriginals {
     pub report: Value,
     pub request: Request,
@@ -105,6 +147,7 @@ pub struct UnitOriginals {
     pub retained_report_path: Option<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn unit_originals(
     root: &Path,
     config: &CheckConfig,
@@ -210,6 +253,7 @@ pub fn unit_originals(
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn expanded_receipt(
     session: &mut crate::runtime_session::Session,
     row: &Value,
@@ -224,6 +268,7 @@ fn expanded_receipt(
     session.call(object!({"operation":"expand-record","record":original}))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn collect(
     req: &Request,
     reader: &Reader,
@@ -250,6 +295,7 @@ pub(super) fn collect(
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn collect_checked(
     req: &Request,
     reader: &Reader,
