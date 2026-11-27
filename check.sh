@@ -49,9 +49,9 @@ preparation_operation=verify.ci-preparation
 preparation_tests_operation=verify.ci-preparation-tests
 
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_operation.rlib" "$src/verified_collection.rs" \
-  "$src/result_types.rs" "$src/route_wire.rs" "$src/project_execution.rs" "$src/files.rs" "$src/source_binding.rs"
+  "$src/result_types.rs" "$src/project_execution.rs" "$src/files.rs" "$src/source_binding.rs" "$src/route_wire.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$collection_tests_operation.rlib" "$tests/verified_collection.rs" \
-  "$include/verified_collection.rs" "$include/result_types.rs" "$include/route_wire.rs" "$include/project_execution.rs" "$include/files.rs" "$include/source_binding.rs" "$tests/support/expect.rs"
+  "$include/verified_collection.rs" "$include/result_types.rs" "$include/project_execution.rs" "$include/files.rs" "$include/source_binding.rs" "$include/route_wire.rs" "$tests/support/expect.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_operation.rlib" "$src/verified_consumption.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/admission-proofs/$preparation_tests_operation.rlib" "$tests/verified_consumption.rs" \
   "$include/verified_consumption.rs"
