@@ -100,7 +100,10 @@ pub mod registration_reply {
 pub mod route_reply;
 #[cfg(not(verus_keep_ghost))]
 pub mod route_reply {
-    pub use crate::route_query::receipt_header;
+    pub use crate::route_query::{
+        ReplyMismatch, plan_identity, prepared_plan, receipt_header, receipt_operations,
+        required_units, selected_plans,
+    };
 }
 
 #[cfg(verus_keep_ghost)]

@@ -90,6 +90,73 @@ fn collected_reports_bind_original_endpoints_and_operation_counts() {
     original_coordinates_and_receipt_counts("request", "same", "same", usize::MAX);
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn route_plan_replies_bind_selection_scope_and_identity() {
+    use policy::route_reply::{ReplyMismatch, plan_identity, prepared_plan, selected_plans};
+    expect(selected_plans(true, true).is_ok());
+    expect(matches!(selected_plans(false, true), Err(ReplyMismatch::Selection)));
+    expect(matches!(selected_plans(true, false), Err(ReplyMismatch::Selection)));
+    expect(prepared_plan(true, true, true).is_ok());
+    expect(matches!(prepared_plan(false, true, true), Err(ReplyMismatch::PreparedPlan)));
+    expect(matches!(prepared_plan(true, false, true), Err(ReplyMismatch::PreparedPlan)));
+    expect(matches!(prepared_plan(true, true, false), Err(ReplyMismatch::PreparedPlan)));
+
+    proof {
+        reveal_strlit("a");
+        reveal_strlit("b");
+        assert("a"@[0] != "b"@[0]);
+    }
+    expect(plan_identity("a", "a").is_ok());
+    expect(matches!(plan_identity("a", "b"), Err(ReplyMismatch::PlanIdentity)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn full_route_reply_keeps_required_unit_order_and_presence() {
+    use policy::route_reply::{ReplyMismatch, required_units};
+    let mut declared = Vec::new();
+    declared.push("a".to_string());
+    declared.push("b".to_string());
+    let mut reversed = Vec::new();
+    reversed.push("b".to_string());
+    reversed.push("a".to_string());
+    let declared = Some(declared);
+    let reversed = Some(reversed);
+    proof {
+        reveal_strlit("a");
+        reveal_strlit("b");
+        assert("a"@[0] != "b"@[0]);
+        assert(!((declared.unwrap()@[0])@ == (reversed.unwrap()@[0])@));
+    }
+    expect(required_units(&declared, &declared).is_ok());
+    expect(matches!(required_units(&declared, &reversed), Err(ReplyMismatch::RequiredUnits)));
+    expect(matches!(required_units(&None, &Some(Vec::new())), Err(ReplyMismatch::RequiredUnits)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn same_count_receipt_reply_must_include_every_planned_key() {
+    use policy::route_reply::{ReplyMismatch, receipt_operations};
+    let planned = [1u8, 2u8];
+    let valid = receipt_operations("a", "a", &planned, 2, |key: &u8| -> (found: bool)
+        ensures found == (*key == 1 || *key == 2)
+        { *key == 1 || *key == 2 });
+    let wrong_keys = |key: &u8| -> (found: bool)
+        ensures found == (*key == 1 || *key == 3)
+        { *key == 1 || *key == 3 };
+    let substituted = receipt_operations("a", "a", &planned, 2, wrong_keys);
+    proof {
+        if let Err(ReplyMismatch::ReceiptOperations) = valid {
+            let i = choose|i: int| 0 <= i < 2 && #[trigger] planned@[i] != 1u8 && planned@[i] != 2u8;
+            assert(i == 0 || i == 1);
+        }
+        if substituted.is_ok() {
+            assert(planned@[1] == 2u8);
+            assert(wrong_keys.ensures((&planned@[1],), true));
+        }
+    }
+    expect(valid.is_ok());
+    expect(matches!(substituted, Err(ReplyMismatch::ReceiptOperations)));
+}
+
 
 #[cfg(verus_keep_ghost)]
 fn original_tool_streams(exit: i32, out: Vec<u8>, err: Vec<u8>) {
