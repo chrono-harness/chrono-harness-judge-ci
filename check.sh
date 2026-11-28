@@ -28,14 +28,8 @@ coverage_failure() {
 }
 
 # Read the exact library selected by Cargo in the build of the tested executable.
-metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
-  [.[] | select(.reason == "compiler-artifact" and .manifest_path == $manifest
-                 and .target.kind == ["lib"]) | .filenames[] | select(endswith(".rmeta"))]
-  | if length == 1 then .[0] else error("expected the product library") end
-' "$scratch/build.jsonl") || coverage_failure "native library was not identified"
-filename=${metadata##*/}
-stem=${filename#lib}
-stem=${metadata%/*}/${stem%.rmeta}
+stem=$(chrono-host-bootstrap select-native-cargo-library "$(pwd -P)/$product" "$scratch/build.jsonl") ||
+  coverage_failure "native library was not identified"
 chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_text.rs src/verified_collection.rs src/result_types.rs src/route_wire.rs src/project_execution.rs src/source_binding.rs src/files.rs src/collect.rs src/units.rs src/originals.rs src/verified_consumption.rs \
   src/consumption.rs src/lib.rs src/requirements.rs src/observed.rs src/impact_query.rs src/project_pairs.rs src/full_registration.rs src/route_query.rs src/codec.rs src/diagnostic_session.rs src/scheduling_git.rs src/runtime_session/originals.rs src/runtime_session.rs src/storage.rs src/wire.rs src/trace_source.rs src/source_observations.rs ||
   coverage_failure "native library differs from required sources"
