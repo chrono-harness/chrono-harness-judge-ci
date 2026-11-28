@@ -62,15 +62,12 @@ pub(super) fn full_operations(
         &json!({"selected":selected, "test_operations":actions, "filemap":filemap,
             "projects":projects, "execution_units":execution_units}),
     )?;
-    if !response.selected.keys().eq(selected.iter()) {
-        return Err("E_PLAN_BINDING: routes selected different test plans".into());
-    }
+    selected_plans(response.selected.keys().eq(selected.iter()), true)
+        .map_err(ReplyMismatch::message)?;
     for (test, plan) in &response.selected {
         let declared: Plan = serde_json::from_value(filemap["execution_plans"][test].clone())
             .map_err(|error| error.to_string())?;
-        if plan != &declared {
-            return Err("E_PLAN_BINDING: routes selected different test plans".into());
-        }
+        selected_plans(true, plan == &declared).map_err(ReplyMismatch::message)?;
     }
     let expected_units = execution_units
         .map(|block| {
@@ -79,9 +76,7 @@ pub(super) fn full_operations(
             crate::units::required(root, &units, selected)
         })
         .transpose()?;
-    if response.required_units != expected_units {
-        return Err("E_UNIT_ASSIGNMENT: routes returned different required units".into());
-    }
+    required_units(&expected_units, &response.required_units).map_err(ReplyMismatch::message)?;
     Ok(response)
 }
 
@@ -103,6 +98,15 @@ pub(super) fn installed(
 
 #[cfg(not(verus_keep_ghost))]
 impl Graph<'_> {
+    fn check_selection(&self, selected: &BTreeMap<String, Plan>) -> Result<(), ReplyMismatch> {
+        let keys_match = selected.keys().eq(self.selected.iter());
+        let plans_match = keys_match
+            && selected
+                .iter()
+                .all(|(id, plan)| self.plans.get(id) == Some(plan));
+        selected_plans(keys_match, plans_match)
+    }
+
     pub fn ordered(
         &self,
         root: &Path,
@@ -115,14 +119,8 @@ impl Graph<'_> {
             "scoped-operations-v1",
             &json!({"graph":self,"binding":binding}),
         )?;
-        if !result.selected.keys().eq(self.selected.iter())
-            || result
-                .selected
-                .iter()
-                .any(|(id, plan)| self.plans.get(id) != Some(plan))
-        {
-            return Err("E_PLAN_BINDING: routes selected different test plans".into());
-        }
+        self.check_selection(&result.selected)
+            .map_err(ReplyMismatch::message)?;
         Ok(result)
     }
 
@@ -141,16 +139,14 @@ impl Graph<'_> {
             "environment":environment,"reused":reused,"scheduling":snapshot.scheduling});
         let plan: Execution = read(root, &program, "prepare-scoped-plan-v1", &request)?;
         check_scoped_plan(root, &program, &plan, &binding, report_path)?;
-        if plan.root != root.canonicalize().map_err(|e| e.to_string())?
-            || !plan.selected.keys().eq(self.selected.iter())
-            || plan
-                .selected
-                .iter()
-                .any(|(id, plan)| self.plans.get(id) != Some(plan))
-            || plan.scheduling != snapshot.scheduling
-        {
-            return Err("E_PLAN_BINDING: prepared plan differs from request".into());
-        }
+        let root_matches = plan.root == root.canonicalize().map_err(|e| e.to_string())?;
+        let selection_matches = root_matches && self.check_selection(&plan.selected).is_ok();
+        prepared_plan(
+            root_matches,
+            selection_matches,
+            plan.scheduling == snapshot.scheduling,
+        )
+        .map_err(ReplyMismatch::message)?;
         Ok(plan)
     }
 }
@@ -176,10 +172,7 @@ pub(super) fn check_scoped_plan(
         "check-scoped-plan-v1",
         &json!({"plan":plan, "binding":binding, "report_path":report_path}),
     )?;
-    if reply.plan != plan.identity {
-        return Err("E_PLAN_IDENTITY: routes returned a different plan".into());
-    }
-    Ok(())
+    plan_identity(&plan.identity, &reply.plan).map_err(|error| error.message().into())
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -209,18 +202,14 @@ pub(super) fn check_receipts(
         "check-plan-receipts-v1",
         &Replay { plan, receipts },
     )?;
-    if !receipt_header(
+    receipt_operations(
         &plan.identity,
         &reply.plan,
-        plan.operations.len(),
+        &plan.operations,
         reply.operations.len(),
-    ) || !plan
-        .operations
-        .iter()
-        .all(|op| reply.operations.contains_key(&op.method.operation))
-    {
-        return Err("E_PLAN_BINDING: routes returned different receipt operations".into());
-    }
+        |op| reply.operations.contains_key(&op.method.operation),
+    )
+    .map_err(ReplyMismatch::message)?;
     Ok(reply.operations)
 }
 
@@ -347,11 +336,142 @@ use super::verified_text::equal_text;
 use crate::verified_collection::verified_text::equal_text;
 use vstd::prelude::*;
 
+#[cfg(not(verus_keep_ghost))]
+impl ReplyMismatch {
+    fn message(self) -> &'static str {
+        match self {
+            Self::Selection => "E_PLAN_BINDING: routes selected different test plans",
+            Self::RequiredUnits => "E_UNIT_ASSIGNMENT: routes returned different required units",
+            Self::PreparedPlan => "E_PLAN_BINDING: prepared plan differs from request",
+            Self::PlanIdentity => "E_PLAN_IDENTITY: routes returned a different plan",
+            Self::ReceiptOperations => {
+                "E_PLAN_BINDING: routes returned different receipt operations"
+            }
+        }
+    }
+}
+
 verus! {
+pub enum ReplyMismatch {
+    Selection,
+    RequiredUnits,
+    PreparedPlan,
+    PlanIdentity,
+    ReceiptOperations,
+}
+
+/// The native adapters compare keys from ordered collections and the typed plans they decoded.
+pub fn selected_plans(keys_match: bool, plans_match: bool) -> (result: Result<(), ReplyMismatch>)
+    ensures result == if keys_match && plans_match { Ok(()) } else { Err(ReplyMismatch::Selection) },
+{
+    if keys_match && plans_match { Ok(()) } else { Err(ReplyMismatch::Selection) }
+}
+
+/// A prepared reply must bind all three observations after the identity replay succeeds.
+pub fn prepared_plan(root_matches: bool, selection_matches: bool, scheduling_matches: bool)
+    -> (result: Result<(), ReplyMismatch>)
+    ensures result == if root_matches && selection_matches && scheduling_matches {
+        Ok(())
+    } else {
+        Err(ReplyMismatch::PreparedPlan)
+    },
+{
+    if root_matches && selection_matches && scheduling_matches {
+        Ok(())
+    } else {
+        Err(ReplyMismatch::PreparedPlan)
+    }
+}
+
+pub open spec fn same_unit_sequence(want: Seq<String>, got: Seq<String>) -> bool {
+    want.len() == got.len()
+        && forall|i: int| 0 <= i < want.len()
+            ==> (#[trigger] want[i])@ == got[i]@
+}
+
+fn unit_sequence_matches(want: &[String], got: &[String]) -> (matches: bool)
+    ensures matches == same_unit_sequence(want@, got@),
+{
+    if want.len() != got.len() { return false; }
+    let mut i = 0;
+    while i < want.len()
+        invariant i <= want.len(), want.len() == got.len(),
+            forall|j: int| 0 <= j < i ==> (#[trigger] want@[j])@ == got@[j]@,
+        decreases want.len() - i,
+    {
+        if !equal_text(want[i].as_str(), got[i].as_str()) {
+            proof {
+                assert(!same_unit_sequence(want@, got@)) by {
+                    if same_unit_sequence(want@, got@) {
+                        assert(want@[i as int]@ == got@[i as int]@);
+                    }
+                }
+            }
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+pub fn required_units(expected: &Option<Vec<String>>, actual: &Option<Vec<String>>)
+    -> (result: Result<(), ReplyMismatch>)
+    ensures result == if match (expected, actual) {
+        (None, None) => true,
+        (Some(want), Some(got)) => same_unit_sequence(want@, got@),
+        _ => false,
+    } { Ok(()) } else { Err(ReplyMismatch::RequiredUnits) },
+{
+    let matches = match (expected, actual) {
+        (None, None) => true,
+        (Some(want), Some(got)) => unit_sequence_matches(want.as_slice(), got.as_slice()),
+        _ => false,
+    };
+    if matches { Ok(()) } else { Err(ReplyMismatch::RequiredUnits) }
+}
+
+pub fn plan_identity(expected: &str, actual: &str) -> (result: Result<(), ReplyMismatch>)
+    ensures result == if expected@ == actual@ { Ok(()) } else { Err(ReplyMismatch::PlanIdentity) },
+{
+    if equal_text(expected, actual) { Ok(()) } else { Err(ReplyMismatch::PlanIdentity) }
+}
+
 /// Each replay must name the requested plan and have the same number of operation keys.
 pub fn receipt_header(expected: &str, actual: &str, planned: usize, returned: usize) -> (bound: bool)
     ensures bound == (expected@ == actual@ && planned == returned),
 {
     equal_text(expected, actual) && planned == returned
+}
+
+/// Check the header before looking up every planned operation in the reply map.
+pub fn receipt_operations<T, F>(expected: &str, actual: &str, planned: &[T], returned: usize, present: F)
+    -> (result: Result<(), ReplyMismatch>)
+    where F: Fn(&T) -> bool,
+    requires forall|row: &T| present.requires((row,)),
+    ensures match result {
+        Ok(()) => expected@ == actual@ && planned.len() == returned
+            && forall|i: int| 0 <= i < planned.len()
+                ==> #[trigger] present.ensures((&planned@[i],), true),
+        Err(ReplyMismatch::ReceiptOperations) => expected@ != actual@ || planned.len() != returned
+            || exists|i: int| 0 <= i < planned.len()
+                && #[trigger] present.ensures((&planned@[i],), false),
+        _ => false,
+    },
+{
+    if !receipt_header(expected, actual, planned.len(), returned) {
+        return Err(ReplyMismatch::ReceiptOperations);
+    }
+    let mut i = 0;
+    while i < planned.len()
+        invariant i <= planned.len(), forall|row: &T| present.requires((row,)),
+            forall|j: int| 0 <= j < i ==> #[trigger] present.ensures((&planned@[j],), true),
+        decreases planned.len() - i,
+    {
+        if !present(&planned[i]) {
+            return Err(ReplyMismatch::ReceiptOperations);
+        }
+        i += 1;
+    }
+    Ok(())
 }
 }
