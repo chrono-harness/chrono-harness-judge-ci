@@ -128,6 +128,49 @@ use crate::verified_collection::verified_text::equal_text;
 use vstd::prelude::*;
 
 verus! {
+pub open spec fn runner_declaration_matches(
+    path_matches: bool, declared_sha256: Option<&str>, declared_version: Option<&str>,
+    requested_sha256: &str, requested_version: &str,
+) -> bool {
+    path_matches && match (declared_sha256, declared_version) {
+        (Some(sha256), Some(version)) => sha256@ == requested_sha256@ && version@ == requested_version@,
+        _ => false,
+    }
+}
+
+/// Read the executable only after its registered identity agrees with the request.
+pub fn collection_runner_binding<F: FnOnce() -> Result<String, String>>(
+    path_matches: bool, declared_sha256: Option<&str>, declared_version: Option<&str>,
+    requested_sha256: &str, requested_version: &str, read_digest: F,
+) -> (result: Result<bool, String>)
+    requires
+        runner_declaration_matches(path_matches, declared_sha256, declared_version,
+            requested_sha256, requested_version) ==> read_digest.requires(()),
+    ensures
+        if runner_declaration_matches(path_matches, declared_sha256, declared_version,
+            requested_sha256, requested_version) {
+            exists |observed: Result<String, String>| #[trigger] read_digest.ensures((), observed)
+                && result == match observed {
+                    Ok(sha256) => Ok(sha256@ == requested_sha256@),
+                    Err(original) => Err(original),
+                }
+        } else {
+            result == Ok::<bool, String>(false)
+        },
+{
+    if !path_matches { return Ok(false); }
+    let (Some(sha256), Some(version)) = (declared_sha256, declared_version) else {
+        return Ok(false);
+    };
+    if !equal_text(sha256, requested_sha256) || !equal_text(version, requested_version) {
+        return Ok(false);
+    }
+    match read_digest() {
+        Ok(sha256) => Ok(equal_text(sha256.as_str(), requested_sha256)),
+        Err(original) => Err(original),
+    }
+}
+
 pub fn collection_scope(kind: Option<&str>) -> (allowed: bool)
     ensures allowed == match kind { Some(kind) => kind@ == "collect"@, None => false },
 {

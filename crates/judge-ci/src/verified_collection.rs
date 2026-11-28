@@ -93,7 +93,9 @@ pub use original_identity::{admitted_report, profile_matches, report_path_matche
 pub mod registration_reply;
 #[cfg(not(verus_keep_ghost))]
 pub mod registration_reply {
-    pub use crate::full_registration::{collection_scope, endpoints_match, projection_matches};
+    pub use crate::full_registration::{
+        collection_runner_binding, collection_scope, endpoints_match, projection_matches,
+    };
 }
 #[cfg(verus_keep_ghost)]
 #[path = "route_query.rs"]

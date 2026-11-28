@@ -101,6 +101,48 @@ fn scoped_endpoints_and_original_preparation_keep_their_coordinates() {
 
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn full_collection_runner_binding_preserves_the_first_failure_and_recovery() {
+    use policy::{registration_reply::collection_runner_binding, verified_text::equal_text};
+    proof {
+        reveal_strlit("digest");
+        reveal_strlit("other");
+        reveal_strlit("version");
+        assert("digest"@.len() != "other"@.len());
+        assert("version"@.len() != "other"@.len());
+    }
+    let unreadable = || -> (result: Result<String, String>)
+        ensures match result { Err(original) => original@ == "read failed"@, Ok(_) => false }
+        { Err("read failed".to_string()) };
+    expect(matches!(collection_runner_binding(false, Some("digest"), Some("version"),
+        "digest", "version", unreadable), Ok(false)));
+    expect(matches!(collection_runner_binding(true, Some("other"), Some("version"),
+        "digest", "version", unreadable), Ok(false)));
+    expect(matches!(collection_runner_binding(true, Some("digest"), Some("other"),
+        "digest", "version", unreadable), Ok(false)));
+    expect(matches!(collection_runner_binding(true, None, Some("version"),
+        "digest", "version", unreadable), Ok(false)));
+    expect(matches!(collection_runner_binding(true, Some("digest"), None,
+        "digest", "version", unreadable), Ok(false)));
+    match collection_runner_binding(true, Some("digest"), Some("version"),
+        "digest", "version", unreadable) {
+        Err(original) => expect(equal_text(original.as_str(), "read failed")),
+        Ok(_) => expect(false),
+    }
+
+    let changed = || -> (result: Result<String, String>)
+        ensures match result { Ok(sha256) => sha256@ == "other"@, Err(_) => false }
+        { Ok("other".to_string()) };
+    expect(matches!(collection_runner_binding(true, Some("digest"), Some("version"),
+        "digest", "version", changed), Ok(false)));
+
+    let restored = || -> (result: Result<String, String>)
+        ensures match result { Ok(sha256) => sha256@ == "digest"@, Err(_) => false }
+        { Ok("digest".to_string()) };
+    expect(matches!(collection_runner_binding(true, Some("digest"), Some("version"),
+        "digest", "version", restored), Ok(true)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn session_frames_and_terminal_failures_stay_bound() {
     use policy::{diagnostic_status::terminal_matches, git_terminal::terminal_error, original_ack::admitted_bytes,
         retained_session::{close_result,CloseFailure}, session_frame::complete_line, session_result::finish_reply};

@@ -1194,11 +1194,14 @@ fn full_collection_at(
             crate::files::no_symlink_parents(root, parent)?;
         }
         let runner = fs::canonicalize(root.join(declared)).map_err(|e| e.to_string())?;
-        if runner != Path::new(&req.runner.path)
-            || cfg["runner"]["sha256"] != req.runner.sha256
-            || cfg["runner"]["version"] != req.runner.version
-            || crate::files::file_identity(&runner)?.0 != req.runner.sha256
-        {
+        if !full_registration::collection_runner_binding(
+            runner == Path::new(&req.runner.path),
+            cfg["runner"]["sha256"].as_str(),
+            cfg["runner"]["version"].as_str(),
+            &req.runner.sha256,
+            &req.runner.version,
+            || crate::files::file_identity(&runner).map(|(sha256, _)| sha256),
+        )? {
             return Err("E_EXECUTABLE_BINDING: registered collection runner differs".into());
         }
         crate::runtime_session::Session::query::<()>(
