@@ -73,7 +73,7 @@ pub(super) fn collection(
     evidence: &mut GitEvidence,
     originals: &dyn Fn(&[String]) -> Result<FullManifest, String>,
 ) -> Result<(FullPlanning, Value), String> {
-    if request.scope["kind"] != "collect" {
+    if !collection_scope(request.scope["kind"].as_str()) {
         return Err("collection report inputs require collection scope".into());
     }
     let read = |oid: &str| -> Result<BTreeMap<String, String>, String> {
@@ -128,10 +128,26 @@ use crate::verified_collection::verified_text::equal_text;
 use vstd::prelude::*;
 
 verus! {
+pub fn collection_scope(kind: Option<&str>) -> (allowed: bool)
+    ensures allowed == match kind { Some(kind) => kind@ == "collect"@, None => false },
+{
+    match kind {
+        Some(kind) => equal_text(kind, "collect"),
+        None => false,
+    }
+}
+
+/// Registration must return both endpoints in the original order.
+pub fn endpoints_match(expected: (&str, &str), actual: (&str, &str)) -> (bound: bool)
+    ensures bound == (expected.0@ == actual.0@ && expected.1@ == actual.1@),
+{
+    equal_text(expected.0, actual.0) && equal_text(expected.1, actual.1)
+}
+
 /// Bind the registration projection to this exact collection and both commits.
 pub fn projection_matches(expected: (&str, &str, &str), actual: (&str, &str, &str)) -> (bound: bool)
     ensures bound == (expected.0@ == actual.0@ && expected.1@ == actual.1@ && expected.2@ == actual.2@),
 {
-    equal_text(expected.0, actual.0) && equal_text(expected.1, actual.1) && equal_text(expected.2, actual.2)
+    equal_text(expected.0, actual.0) && endpoints_match((expected.1, expected.2), (actual.1, actual.2))
 }
 }

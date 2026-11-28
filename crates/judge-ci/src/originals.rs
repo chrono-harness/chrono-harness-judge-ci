@@ -141,8 +141,7 @@ pub(super) fn with_originals<T: DeserializeOwned>(
     let runner = crate::observed::installed(root)?;
     let mut session = Session::open(root, &runner, "retained-artifacts-v1")?;
     let result = session.originals(&operation, &mut read);
-    let closed = session.close();
-    result.and_then(|value| closed.map(|()| value))
+    crate::runtime_session::finish_reply(result, session.close())
 }
 
 use vstd::prelude::*;

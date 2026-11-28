@@ -246,7 +246,7 @@ pub fn unit_originals(
     let mut read = |o: &Original, limit: u64| -> Result<Vec<u8>, String> {
         originals::original_path(root, o, transport)?;
         let raw = read(o, limit)?;
-        if raw.len() as u64 > limit {
+        if !verified_collection::original_size_allowed(raw.len() as u64, limit) {
             return Err(format!("unit original digest/limit mismatch: {}", o.path));
         }
         Ok(raw)
@@ -275,13 +275,10 @@ pub fn unit_originals(
         }
         let path = originals::original_path(root, &reference.original, transport)?;
         let raw = read(&reference.original, limits.report_bytes)?;
-        if sha256(&raw) != reference.original.sha256 {
-            return Err(format!(
-                "original report digest mismatch: {} ({path})",
-                unit
-            ));
-        }
-        let original = json(&raw)?;
+        let admitted =
+            requirements::admitted_report(&raw, &sha256(&raw), &reference.original.sha256)
+                .ok_or_else(|| format!("original report digest mismatch: {unit} ({path})"))?;
+        let original = json(admitted)?;
         if original["schema"] != report_schema {
             return Err(format!("unit transport failed: {}", unit));
         }
@@ -310,7 +307,7 @@ pub fn unit_originals(
         )?;
         let prepared: PreparedCheck =
             serde_json::from_value(binding["result"].clone()).map_err(|e| e.to_string())?;
-        if prepared.scope != original.scope {
+        if !crate::wire::scope_matches(&prepared.scope, &original.scope) {
             return Err("original preparation scope differs from collected unit".into());
         }
     } else if transport.is_some() {
@@ -453,9 +450,8 @@ fn collect_checked(
             "report_bytes",
             limits.report_bytes,
         )?;
-        if sha256(&bytes) != input.sha256 {
-            return Err(format!("unit report digest mismatch: {}", input.unit));
-        }
+        let admitted = requirements::admitted_report(&bytes, &sha256(&bytes), &input.sha256)
+            .ok_or_else(|| format!("unit report digest mismatch: {}", input.unit))?;
         if input
             .artifacts
             .as_ref()
@@ -467,7 +463,7 @@ fn collect_checked(
             &req.host_root,
             config,
             &input.unit,
-            &bytes,
+            admitted,
             input.artifacts.as_ref(),
             |o, limit| {
                 let path = originals::original_path(&req.host_root, o, input.artifacts.as_ref())?;
@@ -495,7 +491,7 @@ fn collect_checked(
             if prepared.base != req.base
                 || prepared.candidate != req.candidate
                 || prepared.profile != req.config_path
-                || prepared.scope != original.scope
+                || !crate::wire::scope_matches(&prepared.scope, &original.scope)
             {
                 return Err("original preparation differs from collected unit".into());
             }
@@ -508,10 +504,12 @@ fn collect_checked(
         };
         let response = unit_response(response_value, &original.request_id, producer.exit_code)?;
         if original.protocol != units::SCOPED_PROTOCOL
-            || original.scope
-                != Some(Scope::Unit {
+            || !crate::wire::scope_matches(
+                &original.scope,
+                &Some(Scope::Unit {
                     unit: input.unit.clone(),
-                })
+                }),
+            )
             || original.base != req.base
             || original.candidate != req.candidate
             || original.initial != req.initial

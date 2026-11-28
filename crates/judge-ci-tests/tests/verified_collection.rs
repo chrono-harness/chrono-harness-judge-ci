@@ -48,6 +48,59 @@ fn scoped_requests_and_original_git_rows_follow_host_inputs() {
 
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn scoped_endpoints_and_original_preparation_keep_their_coordinates() {
+    use policy::registration_reply::{collection_scope, endpoints_match};
+    use policy::request_wire::{Scope, adopted_base_matches, initial_parent_allowed, scope_matches, scoped_base};
+    proof {
+        reveal_strlit("example");
+        reveal_strlit("harness");
+        reveal_strlit("before");
+        reveal_strlit("after");
+        reveal_strlit("collect");
+        assert("before"@.len() != "after"@.len());
+        assert("example"@.len() != "collect"@.len() || "example"@[0] != "collect"@[0]);
+        assert("example"@[0] != "harness"@[0]);
+    }
+    use policy::verified_text::equal_text;
+    match scoped_base(true, Some("before")) {
+        Err(error) => expect(equal_text(error, "initial cannot have base")),
+        Ok(_) => expect(false),
+    }
+    match scoped_base(false, None) {
+        Err(error) => expect(equal_text(error, "base required")),
+        Ok(_) => expect(false),
+    }
+    expect(matches!(scoped_base(true, None), Ok(None)));
+    match scoped_base(false, Some("before")) {
+        Ok(Some(base)) => expect(equal_text(base, "before")),
+        _ => expect(false),
+    }
+    expect(initial_parent_allowed(&[]));
+    expect(!initial_parent_allowed(&["before".to_string()]));
+    expect(adopted_base_matches(Some("before"), "before"));
+    expect(!adopted_base_matches(Some("after"), "before"));
+    expect(!adopted_base_matches(None, "before"));
+    expect(collection_scope(Some("collect")));
+    expect(!collection_scope(Some("example")));
+    expect(!collection_scope(None));
+    expect(endpoints_match(("before", "after"), ("before", "after")));
+    expect(!endpoints_match(("before", "after"), ("after", "before")));
+
+    let unit = Some(Scope::Unit { unit: "example".to_string() });
+    let other = Some(Scope::Unit { unit: "harness".to_string() });
+    let collect = Some(Scope::Collect { manifest: "example".to_string() });
+    let different_manifest = Some(Scope::Collect { manifest: "harness".to_string() });
+    expect(scope_matches(&unit, &unit));
+    expect(!scope_matches(&unit, &other));
+    expect(!scope_matches(&unit, &collect));
+    expect(scope_matches(&collect, &collect));
+    expect(!scope_matches(&collect, &different_manifest));
+    expect(!scope_matches(&None, &unit));
+    expect(scope_matches(&None, &None));
+}
+
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn session_frames_and_terminal_failures_stay_bound() {
     use policy::{diagnostic_status::terminal_matches, git_terminal::terminal_error, original_ack::admitted_bytes,
         retained_session::{close_result,CloseFailure}, session_frame::complete_line, session_result::finish_reply};
