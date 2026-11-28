@@ -1390,7 +1390,7 @@ pub fn scheduling_requirements(
         false,
         false,
     )?;
-    if !i.blocked.is_empty() {
+    if !verified_collection::can_validate_selected_plan(&i.blocked) {
         return Err(format!("blocked global obligations: {:?}", i.blocked));
     }
     Ok(
@@ -1432,7 +1432,7 @@ pub fn collection_requirements(
         false,
         true,
     )?;
-    if !i.blocked.is_empty() {
+    if !verified_collection::can_validate_selected_plan(&i.blocked) {
         return Err(format!("blocked global obligations: {:?}", i.blocked));
     }
     let required = units::required(
@@ -1462,7 +1462,7 @@ impl Profile {
         }
         relative_path(&req.config_path)?;
         let bytes = fs::read(req.host_root.join(&req.config_path)).map_err(|e| e.to_string())?;
-        if sha256(&bytes) != req.config_sha256 {
+        if !requirements::profile_matches(&sha256(&bytes), &req.config_sha256) {
             return Err("config does not match candidate/request".into());
         }
         let config: CheckConfig = decode(&bytes)?;
@@ -1515,7 +1515,7 @@ fn check_registration_documents(
         "check-documents-v1",
         &object!({"entry": entry, "documents": documents}),
     )?;
-    if admitted != effective {
+    if !verified_collection::verified_text::equal_text(&admitted, effective) {
         return Err("registration admitted a different effective configuration".into());
     }
     Ok(())
@@ -1541,7 +1541,10 @@ impl<T> TransitionReply<T> {
         binding: &Value,
         offset: Option<usize>,
     ) -> Result<T, String> {
-        if self.previous != previous || self.candidate != candidate {
+        if !full_registration::endpoints_match(
+            (previous, candidate),
+            (&self.previous, &self.candidate),
+        ) {
             return Err("E_PLAN_BINDING: registration returned different CI endpoints".into());
         }
         evidence.record(binding, offset, self.git_facts)?;
@@ -1641,17 +1644,8 @@ fn inventory_profile(
     let program = program.to_str().ok_or("non-UTF8 registration executable")?;
     let query = Query::scoped(root, &p)?;
     let previous;
-    let old = if req.initial {
-        if req.base.is_some() {
-            return Err("initial cannot have base".into());
-        }
-        if !reader.parents(root, &req.candidate)?.is_empty() {
-            return Err("initial requires parentless commit".into());
-        }
-        previous = "none".to_owned();
-        None
-    } else {
-        let base = req.base.as_deref().ok_or("base required")?;
+    let base = crate::wire::scoped_base(req.initial, req.base.as_deref())?;
+    let old = if let Some(base) = base {
         verify_oid(reader, root, base)?;
         let base_tree = tree(reader, root, base)?;
         let op = if base_tree.contains_key(&req.config_path) {
@@ -1663,7 +1657,7 @@ fn inventory_profile(
             }
             op
         } else {
-            if p.adoption_base.as_deref() != Some(base) {
+            if !crate::wire::adopted_base_matches(p.adoption_base.as_deref(), base) {
                 return Err("base profile absent; explicit exact adoption_base required".into());
             }
             previous = "none".to_owned();
@@ -1686,6 +1680,12 @@ fn inventory_profile(
             program,
             !base_tree.contains_key(&req.config_path),
         )?)
+    } else {
+        if !crate::wire::initial_parent_allowed(&reader.parents(root, &req.candidate)?) {
+            return Err("initial requires parentless commit".into());
+        }
+        previous = "none".to_owned();
+        None
     };
     let new = snapshot(
         reader,
@@ -2058,7 +2058,7 @@ fn evaluate(
     })?;
     let root = &req.host_root;
     if let Some(Scope::Collect { manifest }) = &req.scope {
-        if !blocked.is_empty() {
+        if !verified_collection::can_validate_selected_plan(&blocked) {
             return Err(format!("blocked global obligations: {blocked:?}"));
         }
         let mut response = collect::collect(

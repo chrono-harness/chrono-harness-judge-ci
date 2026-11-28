@@ -93,7 +93,7 @@ pub use original_identity::{admitted_report, profile_matches, report_path_matche
 pub mod registration_reply;
 #[cfg(not(verus_keep_ghost))]
 pub mod registration_reply {
-    pub use crate::full_registration::projection_matches;
+    pub use crate::full_registration::{collection_scope, endpoints_match, projection_matches};
 }
 #[cfg(verus_keep_ghost)]
 #[path = "route_query.rs"]
@@ -161,7 +161,10 @@ pub mod judge_request {
 pub mod request_wire;
 #[cfg(not(verus_keep_ghost))]
 pub mod request_wire {
-    pub use crate::wire::{Scope, request_header};
+    pub use crate::wire::{
+        Scope, adopted_base_matches, initial_parent_allowed, request_header, scope_matches,
+        scoped_base,
+    };
 }
 #[cfg(verus_keep_ghost)]
 #[path = "source_observations.rs"]

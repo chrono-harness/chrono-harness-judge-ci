@@ -60,6 +60,60 @@ pub enum Scope {
     Collect { manifest: String },
 }
 
+pub open spec fn scopes_equal(left: &Option<Scope>, right: &Option<Scope>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(Scope::Unit { unit: a }), Some(Scope::Unit { unit: b })) => a@ == b@,
+        (Some(Scope::Collect { manifest: a }), Some(Scope::Collect { manifest: b })) => a@ == b@,
+        _ => false,
+    }
+}
+
+pub fn scope_matches(left: &Option<Scope>, right: &Option<Scope>) -> (matches: bool)
+    ensures matches == scopes_equal(left, right),
+{
+    match (left, right) {
+        (None, None) => true,
+        (Some(Scope::Unit { unit: a }), Some(Scope::Unit { unit: b })) => equal_text(a.as_str(), b.as_str()),
+        (Some(Scope::Collect { manifest: a }), Some(Scope::Collect { manifest: b })) =>
+            equal_text(a.as_str(), b.as_str()),
+        _ => false,
+    }
+}
+
+/// Resolve which baseline can be read before any endpoint-specific work.
+pub fn scoped_base(initial: bool, base: Option<&str>) -> (result: Result<Option<&str>, &'static str>)
+    ensures result == match (initial, base) {
+        (true, Some(_)) => Err("initial cannot have base"),
+        (false, None) => Err("base required"),
+        _ => Ok(base),
+    },
+{
+    match (initial, base) {
+        (true, Some(_)) => Err("initial cannot have base"),
+        (false, None) => Err("base required"),
+        _ => Ok(base),
+    }
+}
+
+pub fn initial_parent_allowed(parents: &[String]) -> (allowed: bool)
+    ensures allowed == (parents@.len() == 0),
+{
+    parents.len() == 0
+}
+
+pub fn adopted_base_matches(declared: Option<&str>, observed: &str) -> (matches: bool)
+    ensures matches == match declared {
+        Some(base) => base@ == observed@,
+        None => false,
+    },
+{
+    match declared {
+        Some(base) => equal_text(base, observed),
+        None => false,
+    }
+}
+
 pub fn request_header(scope: &Option<Scope>, protocol: &str, id: &str) -> (valid: bool)
     ensures valid == (id@ != ""@ && protocol@ == if scope.is_some() { "chrono-ci-judge/v2"@ } else { "chrono-ci-judge/v1"@ }),
 {
