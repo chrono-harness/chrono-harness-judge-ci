@@ -79,6 +79,12 @@ pub fn installed_config() -> (s: &'static str) {
 }
 
 pub fn tool_installer() -> (s: &'static str) { include_str!("../../../.chrono-harness/install-tools.sh") }
+
+pub fn installer_digest_matches(digest: &String) -> (accepted: bool)
+    ensures accepted == (digest@ == "39566b5b467e31e09edb73ffc0c79b6c719ef0f59b684df9c165bfb66048af47"@),
+{
+    *digest == "39566b5b467e31e09edb73ffc0c79b6c719ef0f59b684df9c165bfb66048af47".to_string()
+}
 }
 
 #[cfg(all(test, not(verus_keep_ghost)))]
@@ -282,7 +288,15 @@ mod native {
 
     #[test]
     fn every_installed_organization_tool_can_follow_the_selected_channel() {
+        use sha2::{Digest, Sha256};
         use std::collections::BTreeSet;
+
+        let source = tool_installer();
+        let digest = Sha256::digest(source.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert!(installer_digest_matches(&digest));
 
         let manifest = mise_manifest().parse::<toml::Table>().unwrap();
         let expected: BTreeSet<_> = manifest["tools"]
@@ -291,7 +305,7 @@ mod native {
             .keys()
             .filter_map(|name| name.strip_prefix("http:chrono-"))
             .collect();
-        let (_, rows) = tool_installer().split_once("done <<'TOOLS'\n").unwrap();
+        let (_, rows) = source.split_once("done <<'TOOLS'\n").unwrap();
         let (rows, _) = rows.split_once("\nTOOLS\n").unwrap();
         let mut selected = BTreeSet::new();
         for row in rows.lines() {
