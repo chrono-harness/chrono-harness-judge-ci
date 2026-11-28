@@ -181,14 +181,16 @@ impl Reader {
     ) -> Result<(Self, Value), String> {
         let local = root.join(".chrono-harness/bin/chrono-harness");
         let program = if local.is_file() {
-            local.as_path()
+            // The runner seals its executable path into full collection requests.
+            // Launch the installed file so the path agrees with the later admission check.
+            local.canonicalize().map_err(|e| e.to_string())?
         } else {
-            Path::new("chrono-harness")
+            PathBuf::from("chrono-harness")
         };
-        let mut command = Command::new(program);
+        let mut command = Command::new(&program);
         command
             .arg("exec-with-descriptors-v1")
-            .arg(program)
+            .arg(&program)
             .arg("git-facts-v1")
             .current_dir(root)
             .stdin(Stdio::piped())
